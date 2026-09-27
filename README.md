@@ -9,6 +9,12 @@ Server complet de SA-MP 0.3.7 bazat pe Las Venturas, cu sisteme avansate de Role
 - **Sistem de Telefon**: Cumperi telefon din 24/7 (`/buy`), apoi `/phone`, `/call`, `/answer`, `/hangup`, `/sms` — apeluri reale între jucători.
 - **Jobul Taxi complet**: `/fare [suma]` setează tariful, pasagerii plătesc automat la coborâre.
 - **Jobul Gunoier complet**: Tură cu 5 puncte de colectare, plată la final de traseu.
+- **Sistem Afaceri (10 biz-uri)**: `/biz`, `/bizcumpara`, `/bizvinde` — venit automat la payday.
+- **Loterie**: `/loterie` ($500/bilet), extragere la payday cu pot care crește.
+- **/v + /vpark**: meniu vehicule personale, respawn și parcare salvată.
+- **/n (Newbie Chat) + /report**: întrebări pentru începători și raportare către staff.
+- **/gunlicenta**: permis port-armă la LVPD ($10.000, nu pentru urmăriți).
+- **Comenzi lider factiune**: `/invite`, `/uninvite`, `/giverank` (rank 1-5).
 
 ## Caracteristici & Sisteme Principale
 

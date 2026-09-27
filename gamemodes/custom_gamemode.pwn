@@ -61,6 +61,11 @@
 #define DIALOG_TUTORIAL_2       1027
 #define DIALOG_TUTORIAL_3       1028
 #define DIALOG_TUTORIAL_4       1029
+#define DIALOG_BIZ              1030
+
+// Business Limits
+#define MAX_BIZS                10
+#define BIZ_INT_WORLD_BASE      2000
 
 // Max Limits
 #define MAX_PERSONAL_VEHICLES   300
@@ -253,6 +258,52 @@ new const HousePrices[MAX_HOUSES] = {
     50000, 75000, 60000, 90000, 120000, 85000, 100000, 150000,
     70000, 95000, 80000, 110000, 65000, 130000, 200000
 };
+
+// ============================================================================
+//                          BUSINESS SYSTEM
+// ============================================================================
+
+enum E_BIZ {
+    bSlot,
+    Float:bX,
+    Float:bY,
+    Float:bZ,
+    bPrice,
+    bIncome,
+    bName[32],
+    bOwner[MAX_PLAYER_NAME],
+    bOwned,
+    bPickup,
+    Text3D:bLabel
+};
+
+new BizInfo[MAX_BIZS][E_BIZ];
+
+new const Float:BizSpots[MAX_BIZS][3] = {
+    {2105.0, 2210.0, 10.82}, // 24/7 Emerald
+    {2280.0, 2440.0, 10.82}, // 24/7 LVPD
+    {1620.0, 1830.0, 10.82}, // Farmacie Spital
+    {2135.0, 1400.0, 10.82}, // Dealership Diner
+    {1100.0, 1380.0, 10.82}, // DMV Cafe
+    {2760.0, 1355.0, 10.82}, // Truck Stop
+    {2810.0, 975.0, 10.82},  // Garage Bar
+    {2150.0, 1605.0, 10.82}, // Taxi Snack
+    {2000.0, 1520.0, 10.82}, // Strip Kiosk
+    {2650.0, 1120.0, 10.82}  // North Diner
+};
+
+new const BizPrices[MAX_BIZS] = {75000, 75000, 60000, 90000, 50000, 85000, 70000, 55000, 65000, 80000};
+new const BizIncomes[MAX_BIZS] = {1500, 1500, 1200, 1800, 1000, 1700, 1400, 1100, 1300, 1600};
+
+new const BizNames[MAX_BIZS][32] = {
+    "24/7 Emerald", "24/7 Central", "Farmacia Spital", "Diner Dealership",
+    "DMV Cafe", "Truck Stop KACC", "Garage Bar", "Taxi Snack Bar",
+    "Strip Kiosk", "North Diner"
+};
+
+// Lottery System
+new gLotteryPot = 0;
+new bool:pLotteryTicket[MAX_PLAYERS];
 
 // Garbage Job Route (5 colectare points in Las Venturas)
 new const Float:GarbageRoute[5][3] = {
@@ -449,6 +500,12 @@ InitDatabase() {
     db_query(gDB, "ALTER TABLE players ADD COLUMN house INTEGER DEFAULT -1;");
     db_query(gDB, "ALTER TABLE players ADD COLUMN tutorial INTEGER DEFAULT 0;");
 
+    // Businesses Table
+    db_query(gDB, "CREATE TABLE IF NOT EXISTS businesses (\
+        slot INTEGER PRIMARY KEY,\
+        owner TEXT DEFAULT ''\
+    );");
+
     // Houses Table (slot fixe, proprietar salvat)
     db_query(gDB, "CREATE TABLE IF NOT EXISTS houses (\
         slot INTEGER PRIMARY KEY,\
@@ -477,6 +534,7 @@ InitDatabase() {
     print("[DATABASE] SQLite server.db a fost initializata cu succes.");
     LoadPersonalVehicles();
     LoadHouses();
+    LoadBusinesses();
 }
 
 SavePlayerData(playerid) {
@@ -704,6 +762,7 @@ public OnPlayerConnect(playerid) {
     CallWith[playerid] = INVALID_PLAYER_ID;
     pTaxiFare[playerid] = 0;
     pTaxiRider[playerid] = INVALID_PLAYER_ID;
+    pLotteryTicket[playerid] = false;
 
     // Check if player is atomk -> Automatically set Level 5 Owner
     if(!strcmp(PlayerInfo[playerid][pName], "atomk", true)) {
@@ -806,6 +865,7 @@ public OnPlayerDisconnect(playerid, reason) {
     CallRequest[playerid] = INVALID_PLAYER_ID;
     pTaxiFare[playerid] = 0;
     pTaxiRider[playerid] = INVALID_PLAYER_ID;
+    pLotteryTicket[playerid] = false;
 
     if(PlayerInfo[playerid][pWorkVehicle]) {
         DestroyVehicle(PlayerInfo[playerid][pWorkVehicle]);
@@ -1436,6 +1496,45 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
             return 1;
         }
 
+        case DIALOG_VEHICLE: {
+            if(!response) return 1;
+            // Count player vehicles, find the selected one
+            new found = 0, selIdx = -1;
+            for(new i = 0; i < TotalPersonalVehicles; i++) {
+                if(!strcmp(VehicleInfo[i][vOwner], PlayerInfo[playerid][pName], true)) {
+                    if(listitem == found) { selIdx = i; break; }
+                    found++;
+                }
+            }
+            if(selIdx == -1) {
+                // Respawn option selected: find nearest personal vehicle and teleport it to player
+                new veh = GetNearestVehicle(playerid, 6.0);
+                if(veh != INVALID_VEHICLE_ID) {
+                    new pIdx = GetPersonalVehicleIndex(veh);
+                    if(pIdx != -1 && !strcmp(VehicleInfo[pIdx][vOwner], PlayerInfo[playerid][pName], true)) {
+                        SetVehiclePos(veh, VehicleInfo[pIdx][vX], VehicleInfo[pIdx][vY], VehicleInfo[pIdx][vZ]);
+                        SetVehicleZAngle(veh, VehicleInfo[pIdx][vA]);
+                        SendClientMessage(playerid, COLOR_GREEN, "[VEHICUL] Vehiculul tau a fost readus in pozitia parcata!");
+                    } else {
+                        SendClientMessage(playerid, COLOR_RED, "[VEHICUL] Nu esti langa vehiculul tau!");
+                    }
+                } else {
+                    SendClientMessage(playerid, COLOR_RED, "[VEHICUL] Nu esti langa niciun vehicul!");
+                }
+                return 1;
+            }
+            // Respawn selected vehicle to its parked position
+            if(VehicleInfo[selIdx][vSpawned]) DestroyVehicle(VehicleInfo[selIdx][vServerID]);
+            new veh2 = CreateVehicle(VehicleInfo[selIdx][vModel], VehicleInfo[selIdx][vX], VehicleInfo[selIdx][vY], VehicleInfo[selIdx][vZ], VehicleInfo[selIdx][vA], VehicleInfo[selIdx][vColor1], VehicleInfo[selIdx][vColor2], -1);
+            VehicleInfo[selIdx][vServerID] = veh2;
+            VehicleInfo[selIdx][vSpawned] = true;
+            VehicleFuel[veh2] = 100;
+            VehicleEngine[veh2] = false;
+            SetVehicleNumberPlate(veh2, VehicleInfo[selIdx][vPlate]);
+            SendClientMessage(playerid, COLOR_GREEN, "[VEHICUL] Vehiculul tau a fost spawnat in pozitia parcata!");
+            return 1;
+        }
+
         case DIALOG_EVENT_CREATE: {
             if(!response) return 1;
             if(PlayerInfo[playerid][pAdmin] < 2) return SendClientMessage(playerid, COLOR_RED, "Nu ai permisiune!");
@@ -1896,6 +1995,39 @@ public OnPlayerSecondUpdate(playerid) {
 
 public OnPayDay() {
     print("[SERVER] Payday execution running for all players.");
+
+    // Lottery draw every payday
+    if(gLotteryPot > 0) {
+        new winner = INVALID_PLAYER_ID, entrants = 0;
+        for(new w = 0; w < MAX_PLAYERS; w++) {
+            if(IsPlayerConnected(w) && pLotteryTicket[w]) entrants++;
+        }
+        if(entrants > 0) {
+            new pick = random(entrants);
+            new scan = 0;
+            for(new w = 0; w < MAX_PLAYERS; w++) {
+                if(IsPlayerConnected(w) && pLotteryTicket[w]) {
+                    if(scan == pick) { winner = w; break; }
+                    scan++;
+                }
+            }
+            if(winner != INVALID_PLAYER_ID) {
+                GivePlayerMoney(winner, gLotteryPot);
+                PlayerInfo[winner][pMoney] = GetPlayerMoney(winner);
+                new lw[144];
+                format(lw, sizeof(lw), "[LOTERIE] {FFFF00}%s{FFFFFF} a CASTIGAT potul de {00FF00}$%d{FFFFFF} la loterie! Felicitari!", PlayerInfo[winner][pName], gLotteryPot);
+                SendClientMessageToAll(COLOR_GOLD, lw);
+                SavePlayerData(winner);
+            }
+        } else {
+            new lw[144];
+            format(lw, sizeof(lw), "[LOTERIE] Nimeni nu a avut bilet. Potul de $%d report pentru urmatoarea extragere!", gLotteryPot);
+            SendClientMessageToAll(COLOR_GOLD, lw);
+        }
+        for(new w = 0; w < MAX_PLAYERS; w++) pLotteryTicket[w] = false;
+        gLotteryPot = 0;
+    }
+
     for(new i = 0; i < MAX_PLAYERS; i++) {
         if(IsPlayerConnected(i) && PlayerInfo[i][pLogged]) {
             PlayerInfo[i][pHours]++;
@@ -1912,7 +2044,15 @@ public OnPayDay() {
             new interest = PlayerInfo[i][pBank] / 100;
             if(interest > 10000) interest = 10000;
 
-            PlayerInfo[i][pBank] += (jobSalary + interest);
+            // Business income for owners
+            new bizIncome = 0;
+            for(new b = 0; b < MAX_BIZS; b++) {
+                if(BizInfo[b][bOwned] && !strcmp(BizInfo[b][bOwner], PlayerInfo[i][pName], true)) {
+                    bizIncome += BizInfo[b][bIncome];
+                }
+            }
+
+            PlayerInfo[i][pBank] += (jobSalary + interest + bizIncome);
 
             SendClientMessage(i, COLOR_YELLOW, "================= [ PAYDAY ] =================");
             new msg[128];
@@ -1920,6 +2060,10 @@ public OnPayDay() {
             SendClientMessage(i, COLOR_WHITE, msg);
             format(msg, sizeof(msg), " Dobanda Bancara (1%%): +$%d", interest);
             SendClientMessage(i, COLOR_WHITE, msg);
+            if(bizIncome > 0) {
+                format(msg, sizeof(msg), " Venit Afaceri: +$%d", bizIncome);
+                SendClientMessage(i, COLOR_WHITE, msg);
+            }
             format(msg, sizeof(msg), " Sold Bancar Curent: $%d | Nivel: %d", PlayerInfo[i][pBank], GetPlayerScore(i));
             SendClientMessage(i, COLOR_GREEN, msg);
             SendClientMessage(i, COLOR_YELLOW, "==============================================");
@@ -3835,6 +3979,210 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
     }
 
     // ========================================================================
+    //                        NEW SYSTEMS: BIZ, /v, LOTTERY, NEWBIE, REPORT
+    // ========================================================================
+
+    // Business commands
+    if(!strcmp(cmd, "/biz", true) || !strcmp(cmd, "/afacere", true)) {
+        new slot = GetNearestBiz(playerid);
+        new bInfo[400];
+        if(slot == -1) {
+            format(bInfo, sizeof(bInfo), "{FFFFFF}Nu esti langa nicio afacere.\n\nAfacerele sunt marcate cu pickup-uri pe map!\nVenitul se plateste automat la fiecare payday.");
+        } else {
+            format(bInfo, sizeof(bInfo), "{FFFF00}[ %s ]{FFFFFF}\nPret: {00FF00}$%d{FFFFFF}\nVenit/payday: {00FF00}$%d{FFFFFF}\nStatus: %s\n\n{00FFFF}Comenzi:{FFFFFF}\n/biz cumpara | /biz vinde", 
+                BizInfo[slot][bName], BizInfo[slot][bPrice], BizInfo[slot][bIncome], BizInfo[slot][bOwned] ? (BizInfo[slot][bOwner]) : "DE VANZARE");
+        }
+        ShowPlayerDialog(playerid, DIALOG_BIZ, DIALOG_STYLE_MSGBOX, "{00FF00}Afacere - Las Venturas", bInfo, "Inchide", "");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/bizcumpara", true)) {
+        new slot = GetNearestBiz(playerid);
+        if(slot == -1) return SendClientMessage(playerid, COLOR_RED, "[BIZ] Nu esti langa nicio afacere!");
+        if(BizInfo[slot][bOwned]) return SendClientMessage(playerid, COLOR_RED, "[BIZ] Aceasta afacere are deja proprietar!");
+        if(PlayerOwnsBiz(playerid)) return SendClientMessage(playerid, COLOR_RED, "[BIZ] Detii deja o afacere!");
+        if(PlayerInfo[playerid][pBank] < BizInfo[slot][bPrice]) {
+            new err[128];
+            format(err, sizeof(err), "[BIZ] Nu ai destui bani! Pret: $%d.", BizInfo[slot][bPrice]);
+            return SendClientMessage(playerid, COLOR_RED, err);
+        }
+        PlayerInfo[playerid][pBank] -= BizInfo[slot][bPrice];
+        BizInfo[slot][bOwned] = 1;
+        format(BizInfo[slot][bOwner], MAX_PLAYER_NAME, "%s", PlayerInfo[playerid][pName]);
+        DestroyPickup(BizInfo[slot][bPickup]);
+        BizInfo[slot][bPickup] = CreatePickup(1272, 1, BizInfo[slot][bX], BizInfo[slot][bY], BizInfo[slot][bZ], -1);
+        UpdateBizLabel(slot);
+        new query[256];
+        format(query, sizeof(query), "INSERT OR REPLACE INTO businesses (slot, owner) VALUES (%d, '%q');", slot, PlayerInfo[playerid][pName]);
+        db_query(gDB, query);
+        SavePlayerData(playerid);
+        new msg[144];
+        format(msg, sizeof(msg), "[BIZ] Felicitari! Ai cumparat %s pentru $%d. Venit la fiecare payday: $%d.", BizInfo[slot][bName], BizInfo[slot][bPrice], BizInfo[slot][bIncome]);
+        SendClientMessage(playerid, COLOR_GREEN, msg);
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/bizvinde", true)) {
+        new slot = -1;
+        for(new b = 0; b < MAX_BIZS; b++) {
+            if(BizInfo[b][bOwned] && !strcmp(BizInfo[b][bOwner], PlayerInfo[playerid][pName], true)) { slot = b; break; }
+        }
+        if(slot == -1) return SendClientMessage(playerid, COLOR_RED, "[BIZ] Nu detii nicio afacere!");
+        new refund = BizInfo[slot][bPrice] / 2;
+        PlayerInfo[playerid][pBank] += refund;
+        BizInfo[slot][bOwned] = 0;
+        BizInfo[slot][bOwner] = "";
+        DestroyPickup(BizInfo[slot][bPickup]);
+        BizInfo[slot][bPickup] = CreatePickup(1274, 1, BizInfo[slot][bX], BizInfo[slot][bY], BizInfo[slot][bZ], -1);
+        UpdateBizLabel(slot);
+        new query[128];
+        format(query, sizeof(query), "DELETE FROM businesses WHERE slot = %d;", slot);
+        db_query(gDB, query);
+        SavePlayerData(playerid);
+        new msg[144];
+        format(msg, sizeof(msg), "[BIZ] Ai vandut afacerea pentru $%d.", refund);
+        SendClientMessage(playerid, COLOR_GREEN, msg);
+        return 1;
+    }
+
+    // Personal vehicle menu
+    if(!strcmp(cmd, "/v", true) || !strcmp(cmd, "/vehicul", true)) {
+        new found = 0, vList[600];
+        format(vList, sizeof(vList), "Nume\tStatus\n");
+        for(new i = 0; i < TotalPersonalVehicles; i++) {
+            if(!strcmp(VehicleInfo[i][vOwner], PlayerInfo[playerid][pName], true)) {
+                new row[96];
+                format(row, sizeof(row), "%s\t%s\n", VehicleNames[VehicleInfo[i][vModel] - 400], VehicleInfo[i][vSpawned] ? ("Spawnat") : ("Garaj"));
+                strcat(vList, row);
+                found++;
+            }
+        }
+        if(!found) return SendClientMessage(playerid, COLOR_RED, "[VEHICUL] Nu detii niciun vehicul! Cumpara unul cu /ds.");
+        strcat(vList, "\n>(respawneaza vehiculul spawnat langa tine)");
+        ShowPlayerDialog(playerid, DIALOG_VEHICLE, DIALOG_STYLE_TABLIST_HEADERS, "{FFFF00}Vehiculele Mele", vList, "Selecteaza", "Inchide");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/vpark", true)) {
+        new veh = GetNearestVehicle(playerid, 5.0);
+        if(veh == INVALID_VEHICLE_ID) return SendClientMessage(playerid, COLOR_RED, "[VEHICUL] Nu esti langa niciun vehicul!");
+        new pIdx = GetPersonalVehicleIndex(veh);
+        if(pIdx == -1 || strcmp(VehicleInfo[pIdx][vOwner], PlayerInfo[playerid][pName], true)) {
+            return SendClientMessage(playerid, COLOR_RED, "[VEHICUL] Acesta nu este vehiculul tau!");
+        }
+        GetVehiclePos(veh, VehicleInfo[pIdx][vX], VehicleInfo[pIdx][vY], VehicleInfo[pIdx][vZ]);
+        GetVehicleZAngle(veh, VehicleInfo[pIdx][vA]);
+        new query[256];
+        format(query, sizeof(query), "UPDATE vehicles SET x = %f, y = %f, z = %f, a = %f WHERE id = %d;", VehicleInfo[pIdx][vX], VehicleInfo[pIdx][vY], VehicleInfo[pIdx][vZ], VehicleInfo[pIdx][vA], VehicleInfo[pIdx][vID]);
+        db_query(gDB, query);
+        SendClientMessage(playerid, COLOR_GREEN, "[VEHICUL] Vehiculul a fost parcat. Pozitia a fost salvata!");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/loterie", true) || !strcmp(cmd, "/lottery", true)) {
+        new cost = 500;
+        if(pLotteryTicket[playerid]) return SendClientMessage(playerid, COLOR_YELLOW, "[LOTERIE] Ai deja un bilet pentru aceasta extragere!");
+        if(GetPlayerMoney(playerid) < cost) return SendClientMessage(playerid, COLOR_RED, "[LOTERIE] Un bilet costa $500 si nu ai bani!");
+        GivePlayerMoney(playerid, -cost);
+        PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+        pLotteryTicket[playerid] = true;
+        gLotteryPot += cost;
+        new lmsg[144];
+        format(lmsg, sizeof(lmsg), "[LOTERIE] Ai cumparat un bilet! Potul actual: $%d. Extragere la urmatorul payday!", gLotteryPot);
+        SendClientMessage(playerid, COLOR_GOLD, lmsg);
+        return 1;
+    }
+
+    // Newbie chat
+    if(!strcmp(cmd, "/n", true) || !strcmp(cmd, "/newbie", true)) {
+        if(strlen(params) == 0) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /n [intrebare]");
+        new nmsg[144];
+        format(nmsg, sizeof(nmsg), "[NEWBIE] %s (%d): %s", PlayerInfo[playerid][pName], playerid, params);
+        for(new i = 0; i < MAX_PLAYERS; i++) {
+            if(IsPlayerConnected(i)) SendClientMessage(i, COLOR_CYAN, nmsg);
+        }
+        return 1;
+    }
+
+    // Report to admins
+    if(!strcmp(cmd, "/report", true) || !strcmp(cmd, "/re", true)) {
+        if(strlen(params) == 0) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /report [mesaj catre staff]");
+        new rmsg[144];
+        format(rmsg, sizeof(rmsg), "[REPORT] %s (%d): %s", PlayerInfo[playerid][pName], playerid, params);
+        for(new i = 0; i < MAX_PLAYERS; i++) {
+            if(IsPlayerConnected(i) && PlayerInfo[i][pAdmin] >= 1) SendClientMessage(i, COLOR_RED, rmsg);
+        }
+        SendClientMessage(playerid, COLOR_GREEN, "[REPORT] Raportul tau a fost trimis staff-ului online.");
+        return 1;
+    }
+
+    // Buy gun licence (DMV building area)
+    if(!strcmp(cmd, "/gunlicenta", true) || !strcmp(cmd, "/gunlicence", true)) {
+        if(PlayerInfo[playerid][pGunLic]) return SendClientMessage(playerid, COLOR_YELLOW, "[POLITIE] Ai deja permis de port-arma!");
+        if(!IsPlayerInRangeOfPoint(playerid, 40.0, 2287.0, 2431.0, 11.5)) return SendClientMessage(playerid, COLOR_RED, "[LVPD] Trebuie sa fii la sediul politiei pentru licenta!");
+        if(GetPlayerMoney(playerid) < 10000) return SendClientMessage(playerid, COLOR_RED, "[LVPD] Taxa licenta port-arma este $10,000!");
+        if(PlayerInfo[playerid][pWanted] > 0) return SendClientMessage(playerid, COLOR_RED, "[LVPD] Esti urmarit de politie! Nu poti obtine licenta.");
+        GivePlayerMoney(playerid, -10000);
+        PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+        PlayerInfo[playerid][pGunLic] = 1;
+        SavePlayerData(playerid);
+        SendClientMessage(playerid, COLOR_GREEN, "[LVPD] Felicitari! Ai primit Permisul de Port-Arma. Acum poti cumpara arme cu /buygun.");
+        return 1;
+    }
+
+    // Faction leader commands
+    if(!strcmp(cmd, "/invite", true)) {
+        if(PlayerInfo[playerid][pFactionRank] < 6) return SendClientMessage(playerid, COLOR_RED, "Doar liderii de factiune pot recruta!");
+        new targetid = strval(params);
+        if(!IsPlayerConnected(targetid) || targetid == playerid) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /invite [playerid]");
+        if(PlayerInfo[targetid][pFaction] != FACTION_CIVILIAN) return SendClientMessage(playerid, COLOR_RED, "Jucatorul este deja intr-o factiune!");
+        PlayerInfo[targetid][pFaction] = PlayerInfo[playerid][pFaction];
+        PlayerInfo[targetid][pFactionRank] = 1;
+        SavePlayerData(targetid);
+        new imsg[144];
+        format(imsg, sizeof(imsg), "[FACTIUNE] Liderul %s te-a recrutat in factiunea lui! Foloseste /duty.", PlayerInfo[playerid][pName]);
+        SendClientMessage(targetid, COLOR_GREEN, imsg);
+        format(imsg, sizeof(imsg), "[FACTIUNE] L-ai recrutat pe %s in factiune (Rank 1).", PlayerInfo[targetid][pName]);
+        SendClientMessage(playerid, COLOR_GREEN, imsg);
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/uninvite", true)) {
+        if(PlayerInfo[playerid][pFactionRank] < 6) return SendClientMessage(playerid, COLOR_RED, "Doar liderii de factiune pot da afara!");
+        new targetid = strval(params);
+        if(!IsPlayerConnected(targetid)) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /uninvite [playerid]");
+        if(PlayerInfo[targetid][pFaction] != PlayerInfo[playerid][pFaction]) return SendClientMessage(playerid, COLOR_RED, "Jucatorul nu este in factiunea ta!");
+        PlayerInfo[targetid][pFaction] = FACTION_CIVILIAN;
+        PlayerInfo[targetid][pFactionRank] = 0;
+        PlayerInfo[targetid][pDuty] = 0;
+        SavePlayerData(targetid);
+        new umsg[144];
+        format(umsg, sizeof(umsg), "[FACTIUNE] Ai fost dat afara din factiune de liderul %s.", PlayerInfo[playerid][pName]);
+        SendClientMessage(targetid, COLOR_RED, umsg);
+        SendClientMessage(playerid, COLOR_GREEN, "[FACTIUNE] Jucatorul a fost dat afara.");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/giverank", true)) {
+        if(PlayerInfo[playerid][pFactionRank] < 6) return SendClientMessage(playerid, COLOR_RED, "Doar liderii pot da rank!");
+        new targetid, rank;
+        if(sscanf_custom(params, targetid, rank) && rank >= 1 && rank <= 5) {
+            if(!IsPlayerConnected(targetid)) return SendClientMessage(playerid, COLOR_RED, "Jucatorul nu este online!");
+            if(PlayerInfo[targetid][pFaction] != PlayerInfo[playerid][pFaction]) return SendClientMessage(playerid, COLOR_RED, "Jucatorul nu este in factiunea ta!");
+            PlayerInfo[targetid][pFactionRank] = rank;
+            SavePlayerData(targetid);
+            new gmsg[144];
+            format(gmsg, sizeof(gmsg), "[FACTIUNE] Liderul %s ti-a acordat Rank %d.", PlayerInfo[playerid][pName], rank);
+            SendClientMessage(targetid, COLOR_GREEN, gmsg);
+            format(gmsg, sizeof(gmsg), "[FACTIUNE] L-ai promovat pe %s la Rank %d.", PlayerInfo[targetid][pName], rank);
+            SendClientMessage(playerid, COLOR_GREEN, gmsg);
+        } else {
+            SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /giverank [playerid] [rank 1-5]");
+        }
+        return 1;
+    }
+
+    // ========================================================================
     //                        HOUSE SYSTEM COMMANDS
     // ========================================================================
     if(!strcmp(cmd, "/house", true) || !strcmp(cmd, "/casa", true)) {
@@ -4025,6 +4373,77 @@ stock ShowTutorialStep4(playerid) {
         "Da, despre case", "Skip"
     );
     return 1;
+}
+
+// ============================================================================
+//                          BUSINESS SYSTEM FUNCTIONS
+// ============================================================================
+
+LoadBusinesses() {
+    for(new i = 0; i < MAX_BIZS; i++) {
+        BizInfo[i][bSlot] = i;
+        BizInfo[i][bX] = BizSpots[i][0];
+        BizInfo[i][bY] = BizSpots[i][1];
+        BizInfo[i][bZ] = BizSpots[i][2];
+        BizInfo[i][bPrice] = BizPrices[i];
+        BizInfo[i][bIncome] = BizIncomes[i];
+        format(BizInfo[i][bName], 32, "%s", BizNames[i]);
+        BizInfo[i][bOwner] = "";
+        BizInfo[i][bOwned] = 0;
+
+        new query[256];
+        format(query, sizeof(query), "SELECT owner FROM businesses WHERE slot = %d LIMIT 1;", i);
+        new DBResult:res = db_query(gDB, query);
+        if(res) {
+            if(db_num_rows(res) > 0) {
+                new owner[MAX_PLAYER_NAME];
+                db_get_field_assoc(res, "owner", owner, MAX_PLAYER_NAME);
+                if(strlen(owner) > 0) {
+                    format(BizInfo[i][bOwner], MAX_PLAYER_NAME, "%s", owner);
+                    BizInfo[i][bOwned] = 1;
+                }
+            }
+            db_free_result(res);
+        }
+
+        if(BizInfo[i][bOwned]) {
+            BizInfo[i][bPickup] = CreatePickup(1272, 1, BizInfo[i][bX], BizInfo[i][bY], BizInfo[i][bZ], -1);
+        } else {
+            BizInfo[i][bPickup] = CreatePickup(1274, 1, BizInfo[i][bX], BizInfo[i][bY], BizInfo[i][bZ], -1);
+        }
+        UpdateBizLabel(i);
+    }
+    printf("[BIZ] S-au incarcat %d afaceri in Las Venturas.", MAX_BIZS);
+}
+
+UpdateBizLabel(slot) {
+    if(slot < 0 || slot >= MAX_BIZS) return;
+    new label[160];
+    if(BizInfo[slot][bOwned]) {
+        format(label, sizeof(label), "{00FF00}[ %s ]\n{FFFFFF}Proprietar: {FFFF00}%s\n{FFFFFF}Venit payday: {00FF00}$%d", BizInfo[slot][bName], BizInfo[slot][bOwner], BizInfo[slot][bIncome]);
+    } else {
+        format(label, sizeof(label), "{FFFF00}[ %s ]\n{FFFFFF}DE VANZARE: {00FF00}$%d\n{FFFFFF}Venit payday: {00FF00}$%d\n{FFFFFF}/bizcumpara langa pickup", BizInfo[slot][bName], BizInfo[slot][bPrice], BizInfo[slot][bIncome]);
+    }
+    if(BizInfo[slot][bLabel] != Text3D:INVALID_3DTEXT_ID) {
+        Delete3DTextLabel(BizInfo[slot][bLabel]);
+    }
+    BizInfo[slot][bLabel] = Create3DTextLabel(label, COLOR_WHITE, BizInfo[slot][bX], BizInfo[slot][bY], BizInfo[slot][bZ] + 1.2, 25.0, 0, 1);
+}
+
+GetNearestBiz(playerid) {
+    for(new i = 0; i < MAX_BIZS; i++) {
+        if(IsPlayerInRangeOfPoint(playerid, 4.0, BizInfo[i][bX], BizInfo[i][bY], BizInfo[i][bZ])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+stock PlayerOwnsBiz(playerid) {
+    for(new i = 0; i < MAX_BIZS; i++) {
+        if(BizInfo[i][bOwned] && !strcmp(BizInfo[i][bOwner], PlayerInfo[playerid][pName], true)) return 1;
+    }
+    return 0;
 }
 
 // ============================================================================
