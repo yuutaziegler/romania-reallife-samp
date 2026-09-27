@@ -1,0 +1,37 @@
+# ============================================================
+# open.mp Linux runtime + Red-Zone gamemode
+# Folosit de docker-compose.yml (service "omp")
+# ============================================================
+FROM ubuntu:22.04
+
+ARG OPENMP_VERSION=1.1.0.2637
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        unzip \
+        libstdc++6 \
+        libgcc-s1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Descarcam runtime-ul open.mp Linux (include omp-server + components/)
+RUN curl -fsSL \
+      "https://github.com/openmultiplayer/open.mp/releases/download/v${OPENMP_VERSION}/open.mp-linux-x86_64.tar.gz" \
+      -o /tmp/openmp.tar.gz \
+    && mkdir -p /server \
+    && tar -xzf /tmp/openmp.tar.gz -C /server \
+    && rm /tmp/openmp.tar.gz \
+    && chmod +x /server/omp-server || true
+
+WORKDIR /server
+
+# Gamemode + pluginuri + scriptfiles vin din contextul de build (red-zone/)
+COPY server-package/ /server/server-package/
+COPY plugins/*.so /server/plugins/
+COPY filterscripts/ /server/filterscripts/
+COPY scriptfiles/ /server/scriptfiles/
+
+EXPOSE 7777/udp
+
+CMD ["/server/omp-server"]

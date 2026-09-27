@@ -1,0 +1,60 @@
+# ============================================================
+# Red-Zone RPG - MySQL + open.mp (docker compose)
+#
+# Folosire:
+#   cd red-zone
+#   docker compose up -d          # porneste MySQL + open.mp
+#   docker compose logs -f omp    # vezi log-urile serverului
+#   docker compose down           # opreste totul
+#
+# Primul start: MySQL se initializeaza automat cu red-zone.sql
+# (toate ID-urile resetate, conturi vechi sterse).
+# ============================================================
+
+services:
+  mysql:
+    image: mariadb:10.11
+    container_name: redzone-mysql
+    restart: unless-stopped
+    environment:
+      # gamemode-ul asteapta: user root, PAROLA GOALA, baza "samp"
+      # (vezi red-zone/server-package/src/Variables.pwn)
+      MYSQL_ROOT_PASSWORD: ""
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: samp
+    volumes:
+      # initializeaza baza de date la primul start cu dump-ul Red-Zone
+      - ./red-zone.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - redzone-mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  omp:
+    build:
+      context: .
+      dockerfile: Dockerfile.omp
+    container_name: redzone-omp
+    restart: unless-stopped
+    # network_mode host => gamemode-ul (compilat cu MySQL_IPLocal="localhost")
+    # se conectaza direct la 127.0.0.1:3306 fara recompilare.
+    network_mode: host
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      # suprascriem server.cfg cu cel adaptat Linux (port 7777, .so plugins)
+      - ./server.cfg:/server/server.cfg:ro
+      # salvam datele serverului intre rulari (server.db logs, scriptfiles)
+      - redzone-scriptfiles:/server/scriptfiles
+    ports:
+      - "7777:7777/udp"
+
+volumes:
+  redzone-mysql-data:
+  redzone-scriptfiles:
