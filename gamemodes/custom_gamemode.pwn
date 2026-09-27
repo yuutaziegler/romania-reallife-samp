@@ -62,6 +62,8 @@
 #define DIALOG_TUTORIAL_3       1028
 #define DIALOG_TUTORIAL_4       1029
 #define DIALOG_BIZ              1030
+#define DIALOG_AMMO_MENU        1031
+#define DIALOG_SKIN_PICK        1032
 
 // Business Limits
 #define MAX_BIZS                10
@@ -305,6 +307,9 @@ new const BizNames[MAX_BIZS][32] = {
 new gLotteryPot = 0;
 new bool:pLotteryTicket[MAX_PLAYERS];
 
+// Faction Bank System
+new gFactionBank[8];
+
 // Garbage Job Route (5 colectare points in Las Venturas)
 new const Float:GarbageRoute[5][3] = {
     {2100.0, 2320.0, 10.82},
@@ -500,6 +505,12 @@ InitDatabase() {
     db_query(gDB, "ALTER TABLE players ADD COLUMN house INTEGER DEFAULT -1;");
     db_query(gDB, "ALTER TABLE players ADD COLUMN tutorial INTEGER DEFAULT 0;");
 
+    // Faction Bank Table
+    db_query(gDB, "CREATE TABLE IF NOT EXISTS factions (\
+        id INTEGER PRIMARY KEY,\
+        bank INTEGER DEFAULT 50000\
+    );");
+
     // Businesses Table
     db_query(gDB, "CREATE TABLE IF NOT EXISTS businesses (\
         slot INTEGER PRIMARY KEY,\
@@ -535,6 +546,41 @@ InitDatabase() {
     LoadPersonalVehicles();
     LoadHouses();
     LoadBusinesses();
+    LoadFactionBanks();
+}
+
+LoadFactionBanks() {
+    // Ensure rows exist for factions 1-7, then load
+    for(new i = 1; i <= 7; i++) {
+        new q[128];
+        format(q, sizeof(q), "INSERT OR IGNORE INTO factions (id, bank) VALUES (%d, 50000);", i);
+        db_query(gDB, q);
+
+        format(q, sizeof(q), "SELECT bank FROM factions WHERE id = %d LIMIT 1;", i);
+        new DBResult:res = db_query(gDB, q);
+        if(res) {
+            if(db_num_rows(res) > 0) {
+                new field[32];
+                db_get_field_assoc(res, "bank", field, sizeof(field));
+                gFactionBank[i] = strval(field);
+            }
+            db_free_result(res);
+        }
+    }
+    print("[FACTIONS] Bancile factiunilor au fost incarcate.");
+}
+
+stock SaveFactionBank(factionid) {
+    if(factionid < 1 || factionid > 7) return 0;
+    new q[128];
+    format(q, sizeof(q), "UPDATE factions SET bank = %d WHERE id = %d;", gFactionBank[factionid], factionid);
+    db_query(gDB, q);
+    return 1;
+}
+
+stock GetFactionBank(factionid) {
+    if(factionid < 1 || factionid > 7) return 0;
+    return gFactionBank[factionid];
 }
 
 SavePlayerData(playerid) {
@@ -933,6 +979,12 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
 
             SetPlayerCameraPos(playerid, 2085.0, 2330.0, 30.0);
             SetPlayerCameraLookAt(playerid, 2110.0, 2360.0, 10.82);
+
+            // Character skin selection (starter skins)
+            ShowPlayerDialog(playerid, DIALOG_SKIN_PICK, DIALOG_STYLE_LIST, "{00FF00}Alege-ti Characterul - Skin Initial",
+                "Barbat - Tricou & Blugi (Skin 26)\nBarbat - Hanorac Urban (Skin 60)\nBarbat - Barbat Business (Skin 170)\nBarbat - Camasa casual (Skin 184)\nFata - Streetwear (Skin 101)\nFemeie - Rochie eleganta (Skin 12)\nFemeie - Casual Top (Skin 40)\nFemeie - Femeie business (Skin 190)",
+                "Selecteaza", "Random"
+            );
 
             // Start the full 5-step interactive tutorial
             PlayerInfo[playerid][pTutorial] = 1;
@@ -1496,6 +1548,53 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
             return 1;
         }
 
+        case DIALOG_AMMO_MENU: {
+            if(!response) return 1;
+            new wep1, am1, wep2, am2, wep3, am3;
+            GetPlayerWeaponData(playerid, 2, wep1, am1);
+            GetPlayerWeaponData(playerid, 3, wep2, am2);
+            GetPlayerWeaponData(playerid, 4, wep3, am3);
+
+            new prices[3] = {100, 250, 400};
+            new ammoAmt[3] = {100, 60, 120};
+            new wepSlots[3], slot = -1;
+            wepSlots[0] = wep1; wepSlots[1] = wep2; wepSlots[2] = wep3;
+
+            // Map listitem -> existing weapon slot
+            new mapping[3] = {-1, -1, -1}, mIdx = 0;
+            for(new s = 0; s < 3; s++) {
+                if(wepSlots[s] > 0) { mapping[mIdx] = s; mIdx++; }
+            }
+            if(listitem < 0 || listitem >= mIdx) return 1;
+            slot = mapping[listitem];
+
+            new cost = prices[slot];
+            if(GetPlayerMoney(playerid) < cost) return SendClientMessage(playerid, COLOR_RED, "[AMMU] Nu ai destui bani pentru gloante!");
+            GivePlayerMoney(playerid, -cost);
+            PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+            GivePlayerWeapon(playerid, wepSlots[slot], ammoAmt[slot]);
+
+            new amsg[128];
+            format(amsg, sizeof(amsg), "[AMMU] Ai cumparat %d gloante pentru %s ($%d).", ammoAmt[slot], WeaponName(wepSlots[slot]), cost);
+            SendClientMessage(playerid, COLOR_GREEN, amsg);
+            return 1;
+        }
+
+        case DIALOG_SKIN_PICK: {
+            if(!response) return 1;
+            // Starter skins: male/female selection at registration
+            new starterSkins[8] = {26, 60, 170, 184, 101, 12, 40, 190};
+            if(listitem < 0 || listitem > 7) return 1;
+            PlayerInfo[playerid][pSkin] = starterSkins[listitem];
+            CivilianSkin[playerid] = starterSkins[listitem];
+            SetPlayerSkin(playerid, starterSkins[listitem]);
+            SavePlayerData(playerid);
+            new smsg[128];
+            format(smsg, sizeof(smsg), "[CARACTER] Ai ales skinul #%d! Il poti schimba oricand cu /skin sau /clothes.", starterSkins[listitem]);
+            SendClientMessage(playerid, COLOR_GREEN, smsg);
+            return 1;
+        }
+
         case DIALOG_VEHICLE: {
             if(!response) return 1;
             // Count player vehicles, find the selected one
@@ -1964,10 +2063,15 @@ public OnPlayerSecondUpdate(playerid) {
         PlayerTextDrawHide(playerid, SpeedoInfoTD[playerid]);
     }
 
-    // Jail Timer countdown
+    // Jail Timer countdown (1 = jail normal, 2 = admin jail)
     if(PlayerInfo[playerid][pJailed]) {
         if(PlayerInfo[playerid][pJailTime] > 0) {
             PlayerInfo[playerid][pJailTime]--;
+            if(PlayerInfo[playerid][pJailed] == 2 && PlayerInfo[playerid][pJailTime] % 30 == 0) {
+                new ajMsg[64];
+                format(ajMsg, sizeof(ajMsg), "~r~AJAIL: ~w~%d secunde ramase", PlayerInfo[playerid][pJailTime]);
+                GameTextForPlayer(playerid, ajMsg, 2000, 3);
+            }
         } else {
             PlayerInfo[playerid][pJailed] = 0;
             PlayerInfo[playerid][pJailTime] = 0;
@@ -1975,7 +2079,9 @@ public OnPlayerSecondUpdate(playerid) {
             SetPlayerVirtualWorld(playerid, 0);
             SetPlayerPos(playerid, 2110.0, 2360.0, 10.82);
             SetPlayerFacingAngle(playerid, 90.0);
-            SendClientMessage(playerid, COLOR_GREEN, "[JAIL] Ti-ai ispasit pedeapsa si ai fost eliberat din inchisoare la Emerald Isle!");
+            if(PlayerInfo[playerid][pJailed] == 0) {
+                SendClientMessage(playerid, COLOR_GREEN, "[JAIL] Ti-ai ispasit pedeapsa si ai fost eliberat la Emerald Isle!");
+            }
             SavePlayerData(playerid);
         }
     }
@@ -2246,6 +2352,18 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
     if(!PlayerInfo[playerid][pLogged]) {
         SendClientMessage(playerid, COLOR_RED, "[EROARE] Trebuie sa fii autentificat pentru a folosi comenzi!");
         return 1;
+    }
+
+    // Admin jail: only /report and /n allowed
+    if(PlayerInfo[playerid][pJailed] == 2) {
+        new jailCmd[32];
+        new jcIdx = 0;
+        while(cmdtext[jcIdx] > ' ' && jcIdx < 31) { jailCmd[jcIdx] = cmdtext[jcIdx]; jcIdx++; }
+        jailCmd[jcIdx] = '\0';
+        if(strcmp(jailCmd, "/report", true) != 0 && strcmp(jailCmd, "/n", true) != 0) {
+            SendClientMessage(playerid, COLOR_RED, "[AJAIL] In ajail poti folosi doar /report si /n!");
+            return 1;
+        }
     }
 
     new cmd[32], params[128];
@@ -2529,7 +2647,11 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
         strcat(helpMsg, "/join / /particip - Inscrie-te la eventul activ\n");
         strcat(helpMsg, "/skin / /clothes / /wardrobe - Alege-ti hainele si skinul\n");
         strcat(helpMsg, "/dmv / /exam - Scoala de soferi Blackfield (Permis auto)\n");
-        strcat(helpMsg, "/time | /id [id] | /admins | /stats | /gps | /bank | /atm\n\n");
+        strcat(helpMsg, "/time | /id [id] | /admins | /stats | /gps | /bank | /atm | /balance\n");
+        strcat(helpMsg, "/phone /call /answer /hangup /sms | /loterie | /house | /biz\n");
+        strcat(helpMsg, "/n [intrebare] | /report [mesaj] | /v /vpark | /tutorial\n");
+        if(PlayerInfo[playerid][pFaction] > 0) strcat(helpMsg, "/fbank /fsalariu /invite /uninvite /giverank\n");
+        strcat(helpMsg, "\n");
         strcat(helpMsg, "{FFFF00}Vehicule & Masini (Tasta '2' = Motor | Tasta 'N' = Lock):{FFFFFF}\n");
         strcat(helpMsg, "/engine (sau tasta 2) - Porneste / opreste motorul\n");
         strcat(helpMsg, "/lock (sau tasta N) - Incuie / descuie usile\n");
@@ -3177,6 +3299,21 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
             "1. Trusa Medicala - $150\n2. Canistra de Benzina - $250\n3. Telefon Mobil - $500",
             "Cumpara", "Iesi"
         );
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/ammo", true)) {
+        if(!PlayerInfo[playerid][pGunLic]) return SendClientMessage(playerid, COLOR_RED, "[AMMU] Nu detii permis de port-arma!");
+        new wep1, am1, wep2, am2, wep3, am3;
+        GetPlayerWeaponData(playerid, 2, wep1, am1);
+        GetPlayerWeaponData(playerid, 3, wep2, am2);
+        GetPlayerWeaponData(playerid, 4, wep3, am3);
+        new aList[400], hasAny = 0;
+        if(wep1 > 0) { new r[80]; format(r, sizeof(r), "%s - $%d\n", WeaponName(wep1), 100); strcat(aList, r); hasAny = 1; }
+        if(wep2 > 0) { new r[80]; format(r, sizeof(r), "%s - $%d\n", WeaponName(wep2), 250); strcat(aList, r); hasAny = 1; }
+        if(wep3 > 0) { new r[80]; format(r, sizeof(r), "%s - $%d\n", WeaponName(wep3), 400); strcat(aList, r); hasAny = 1; }
+        if(!hasAny) return SendClientMessage(playerid, COLOR_RED, "[AMMU] Nu detii nicio arma de reincarcat! Cumpara una cu /buygun.");
+        ShowPlayerDialog(playerid, DIALOG_AMMO_MENU, DIALOG_STYLE_LIST, "{FF0000}Ammu-Nation - Cumpara Gloante", aList, "Cumpara", "Inchide");
         return 1;
     }
 
@@ -3979,6 +4116,56 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
     }
 
     // ========================================================================
+    //                        ADMIN JAIL SYSTEM (/ajail)
+    // ========================================================================
+    if(!strcmp(cmd, "/ajail", true)) {
+        if(PlayerInfo[playerid][pAdmin] < 2) return SendClientMessage(playerid, COLOR_RED, "Nu ai permisiunea necesara!");
+        new targetid, minutes, reason[64];
+        if(sscanf_id_val_str(params, targetid, minutes, reason) && minutes > 0 && minutes <= 120) {
+            if(!IsPlayerConnected(targetid) || !PlayerInfo[targetid][pLogged]) {
+                return SendClientMessage(playerid, COLOR_RED, "Jucatorul nu este online sau logat!");
+            }
+            if(targetid == playerid) return SendClientMessage(playerid, COLOR_RED, "Nu te poti da singur in ajail!");
+
+            PlayerInfo[targetid][pJailed] = 2; // admin jail (separat de jail normal)
+            PlayerInfo[targetid][pJailTime] = minutes * 60;
+            ResetPlayerWeapons(targetid);
+            SetPlayerInterior(targetid, 10); // booth interior
+            SetPlayerVirtualWorld(targetid, 9999);
+            SetPlayerPos(targetid, 219.0, 112.0, 999.0);
+            SetPlayerHealth(targetid, 100.0);
+
+            new amsg[144];
+            format(amsg, sizeof(amsg), "[AJAIL] Adminul %s l-a incarcerat pe %s pentru %d minute. Motiv: %s", PlayerInfo[playerid][pName], PlayerInfo[targetid][pName], minutes, reason);
+            SendClientMessageToAll(COLOR_ADMIN, amsg);
+            format(amsg, sizeof(amsg), "[AJAIL] Esti inchis in ajail pentru %d minute. Nu poti folosi comenzi de teleporatare!", minutes);
+            SendClientMessage(targetid, COLOR_RED, amsg);
+            SavePlayerData(targetid);
+        } else {
+            SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /ajail [playerid] [minute 1-120] [motiv]");
+        }
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/unjail", true)) {
+        if(PlayerInfo[playerid][pAdmin] < 2) return SendClientMessage(playerid, COLOR_RED, "Nu ai permisiunea necesara!");
+        new targetid = strval(params);
+        if(!IsPlayerConnected(targetid)) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /unjail [playerid]");
+        if(!PlayerInfo[targetid][pJailed]) return SendClientMessage(playerid, COLOR_RED, "Jucatorul nu este inchis!");
+
+        PlayerInfo[targetid][pJailed] = 0;
+        PlayerInfo[targetid][pJailTime] = 0;
+        SetPlayerInterior(targetid, 0);
+        SetPlayerVirtualWorld(targetid, 0);
+        SetPlayerPos(targetid, 2110.0, 2360.0, 10.82);
+        SetPlayerFacingAngle(targetid, 90.0);
+        SendClientMessage(targetid, COLOR_GREEN, "[AJAIL] Ai fost eliberat de catre un administrator!");
+        SendClientMessage(playerid, COLOR_ADMIN, "[AJAIL] Jucatorul a fost eliberat.");
+        SavePlayerData(targetid);
+        return 1;
+    }
+
+    // ========================================================================
     //                        NEW SYSTEMS: BIZ, /v, LOTTERY, NEWBIE, REPORT
     // ========================================================================
 
@@ -4178,6 +4365,93 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
             SendClientMessage(playerid, COLOR_GREEN, gmsg);
         } else {
             SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /giverank [playerid] [rank 1-5]");
+        }
+        return 1;
+    }
+
+    // Quick balance check (works anywhere)
+    if(!strcmp(cmd, "/balance", true) || !strcmp(cmd, "/sold", true)) {
+        new bmsg[128];
+        format(bmsg, sizeof(bmsg), "[BANCA] Cash: {00FF00}$%d{FFFFFF} | Sold bancar: {00FF00}$%d", GetPlayerMoney(playerid), PlayerInfo[playerid][pBank]);
+        SendClientMessage(playerid, COLOR_YELLOW, bmsg);
+        return 1;
+    }
+
+    // Faction bank commands (leader)
+    if(!strcmp(cmd, "/fbank", true)) {
+        if(PlayerInfo[playerid][pFaction] == FACTION_CIVILIAN) return SendClientMessage(playerid, COLOR_RED, "Nu faci parte dintr-o factiune!");
+        new fbMsg[200];
+        if(strlen(params) == 0) {
+            if(PlayerInfo[playerid][pFactionRank] < 6) {
+                format(fbMsg, sizeof(fbMsg), "[FBANK] Banii factiunii tale: {00FF00}$%d", GetFactionBank(PlayerInfo[playerid][pFaction]));
+            } else {
+                format(fbMsg, sizeof(fbMsg), "[FBANK] Banii factiunii: {00FF00}$%d{FFFFFF}\nComenzi lider:\n/fbank depune [suma]\n/fbank retrage [suma]", GetFactionBank(PlayerInfo[playerid][pFaction]));
+            }
+            SendClientMessage(playerid, COLOR_LIGHTBLUE, fbMsg);
+            return 1;
+        }
+        if(PlayerInfo[playerid][pFactionRank] < 6) return SendClientMessage(playerid, COLOR_RED, "Doar liderii pot gestiona banii factiunii!");
+
+        new action[16], amount;
+        new idx2 = 0;
+        while(params[idx2] > ' ') { action[idx2] = params[idx2]; idx2++; }
+        action[idx2] = '\0';
+        while(params[idx2] == ' ') idx2++;
+        amount = strval(params[idx2]);
+
+        if(amount <= 0) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /fbank [depune|retrage] [suma]");
+
+        if(!strcmp(action, "depune", true)) {
+            if(GetPlayerMoney(playerid) < amount) return SendClientMessage(playerid, COLOR_RED, "[FBANK] Nu ai suficienti bani cash!");
+            GivePlayerMoney(playerid, -amount);
+            PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+            gFactionBank[PlayerInfo[playerid][pFaction]] += amount;
+            SaveFactionBank(PlayerInfo[playerid][pFaction]);
+            format(fbMsg, sizeof(fbMsg), "[FBANK] Ai depus $%d in banca factiunii. Sold nou: $%d", amount, GetFactionBank(PlayerInfo[playerid][pFaction]));
+            SendClientMessage(playerid, COLOR_GREEN, fbMsg);
+        } else if(!strcmp(action, "retrage", true)) {
+            if(gFactionBank[PlayerInfo[playerid][pFaction]] < amount) return SendClientMessage(playerid, COLOR_RED, "[FBANK] Factiunea nu are atatia bani!");
+            gFactionBank[PlayerInfo[playerid][pFaction]] -= amount;
+            SaveFactionBank(PlayerInfo[playerid][pFaction]);
+            GivePlayerMoney(playerid, amount);
+            PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+            format(fbMsg, sizeof(fbMsg), "[FBANK] Ai retras $%d din banca factiunii. Sold nou: $%d", amount, GetFactionBank(PlayerInfo[playerid][pFaction]));
+            SendClientMessage(playerid, COLOR_GREEN, fbMsg);
+        } else {
+            SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /fbank [depune|retrage] [suma]");
+        }
+        SavePlayerData(playerid);
+        return 1;
+    }
+
+    // Faction salary to online members (leader, paid from faction bank)
+    if(!strcmp(cmd, "/fsalariu", true)) {
+        if(PlayerInfo[playerid][pFactionRank] < 6) return SendClientMessage(playerid, COLOR_RED, "Doar liderii pot da salarii!");
+        new amount = strval(params);
+        if(amount <= 0 || amount > 50000) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /fsalariu [suma 1-50000] (per membru online)");
+        new fid = PlayerInfo[playerid][pFaction];
+        new online = 0;
+        for(new i = 0; i < MAX_PLAYERS; i++) {
+            if(IsPlayerConnected(i) && PlayerInfo[i][pLogged] && PlayerInfo[i][pFaction] == fid) online++;
+        }
+        if(online == 0) return SendClientMessage(playerid, COLOR_RED, "Niciun membru online!");
+        new total = amount * online;
+        if(gFactionBank[fid] < total) {
+            new emsg[128];
+            format(emsg, sizeof(emsg), "[FBANK] Factiunea nu are $%d (%d membri online x $%d)!", total, online, amount);
+            return SendClientMessage(playerid, COLOR_RED, emsg);
+        }
+        gFactionBank[fid] -= total;
+        SaveFactionBank(fid);
+        new smsg[144];
+        format(smsg, sizeof(smsg), "[FBANK] Liderul %s a distribuit $%d fiecarui membru online (total $%d din banca factiunii)!", PlayerInfo[playerid][pName], amount, total);
+        for(new i = 0; i < MAX_PLAYERS; i++) {
+            if(IsPlayerConnected(i) && PlayerInfo[i][pLogged] && PlayerInfo[i][pFaction] == fid) {
+                GivePlayerMoney(i, amount);
+                PlayerInfo[i][pMoney] = GetPlayerMoney(i);
+                SavePlayerData(i);
+                SendClientMessage(i, COLOR_GREEN, smsg);
+            }
         }
         return 1;
     }
@@ -4612,6 +4886,31 @@ stock EndPhoneCall(playerid) {
     CallWith[playerid] = INVALID_PLAYER_ID;
     return 1;
 }
+
+stock WeaponName(weaponid) {
+    new wname[32];
+    switch(weaponid) {
+        case 22: wname = "9mm Pistol";
+        case 23: wname = "Silenced 9mm";
+        case 24: wname = "Desert Eagle";
+        case 25: wname = "Shotgun";
+        case 29: wname = "MP5";
+        case 30: wname = "AK-47";
+        case 31: wname = "M4";
+        case 33: wname = "Rifle";
+        case 34: wname = "Sniper";
+        case 4: wname = "Knife";
+        case 3: wname = "Nightstick";
+        default: wname = "Arma";
+    }
+    return wname;
+}
+
+// ============================================================================
+//                          AMMO & SKIN DIALOGS
+// ============================================================================
+
+stock ShowAmmoDialogFor(playerid) { return 1; }
 
 stock SendLocalMessage(playerid, color, const string[], Float:radius) {
     new Float:x, Float:y, Float:z;
