@@ -2,6 +2,14 @@
 
 Server complet de SA-MP 0.3.7 bazat pe Las Venturas, cu sisteme avansate de Roleplay / RPG romanesc inspirat din clasicele comunitati (RedBugged, B-Hood).
 
+## Sisteme Noi (v1.3)
+
+- **Tutorial Interactiv 5 Pasí**: La înregistrare, jucătorii trec printr-un tutorial complet (Joburi -> Banca & Telefon -> Case & Vehicule -> Permis DMV). Se poate relua oricând cu `/tutorial`.
+- **Sistem de Case (15 locatii)**: Case de vânzare marcate pe map, `/house cumpara|vinde|intra`, interior privat (virtual world per casă), salvare în SQLite.
+- **Sistem de Telefon**: Cumperi telefon din 24/7 (`/buy`), apoi `/phone`, `/call`, `/answer`, `/hangup`, `/sms` — apeluri reale între jucători.
+- **Jobul Taxi complet**: `/fare [suma]` setează tariful, pasagerii plătesc automat la coborâre.
+- **Jobul Gunoier complet**: Tură cu 5 puncte de colectare, plată la final de traseu.
+
 ## Caracteristici & Sisteme Principale
 
 - **Spawn Principal**: Emerald Isle Casino & Hotel (Las Venturas) cu ATM functional si masini de spawn aliniate curat.

@@ -58,6 +58,9 @@
 #define DIALOG_MDC              1024
 #define DIALOG_FRISK            1025
 #define DIALOG_RAPORT           1026
+#define DIALOG_TUTORIAL_2       1027
+#define DIALOG_TUTORIAL_3       1028
+#define DIALOG_TUTORIAL_4       1029
 
 // Max Limits
 #define MAX_PERSONAL_VEHICLES   300
@@ -115,7 +118,10 @@ enum E_PLAYER {
     pCrimes[64],
     pRaport,
     pMuted,
-    pMuteTime
+    pMuteTime,
+    pPhone,
+    pHouse,
+    pTutorial
 };
 
 new PlayerInfo[MAX_PLAYERS][E_PLAYER];
@@ -193,6 +199,70 @@ new pSpecTarget[MAX_PLAYERS];
 new DB:gDB;
 new gGlobalTimer;
 
+// Phone System Variables
+new CallRequest[MAX_PLAYERS];
+new CallWith[MAX_PLAYERS];
+
+// Taxi Fare System
+new pTaxiFare[MAX_PLAYERS];
+new pTaxiRider[MAX_PLAYERS];
+
+// ============================================================================
+//                          HOUSE SYSTEM
+// ============================================================================
+#define MAX_HOUSES              15
+#define HOUSE_INT_ID            5
+#define HOUSE_INT_WORLD_BASE    1000
+#define HOUSE_INT_X             1299.14
+#define HOUSE_INT_Y             -794.87
+#define HOUSE_INT_Z             1084.0
+
+enum E_HOUSE {
+    hSlot,
+    Float:hX,
+    Float:hY,
+    Float:hZ,
+    hPrice,
+    hOwner[MAX_PLAYER_NAME],
+    hOwned,
+    hPickup,
+    Text3D:hLabel
+};
+
+new HouseInfo[MAX_HOUSES][E_HOUSE];
+
+new const Float:HouseSpots[MAX_HOUSES][3] = {
+    {2097.0, 2418.0, 10.82},
+    {2088.0, 2312.0, 10.82},
+    {1965.0, 2375.0, 10.82},
+    {1930.0, 2415.0, 10.82},
+    {2001.0, 2574.0, 10.82},
+    {2065.0, 2608.0, 10.82},
+    {2202.0, 2625.0, 10.82},
+    {2265.0, 2650.0, 10.82},
+    {2450.0, 1357.0, 10.82},
+    {2510.0, 1290.0, 10.82},
+    {2635.0, 1105.0, 10.82},
+    {2670.0, 1290.0, 10.82},
+    {1870.0, 2110.0, 10.82},
+    {1740.0, 2205.0, 10.82},
+    {1690.0, 2280.0, 10.82}
+};
+
+new const HousePrices[MAX_HOUSES] = {
+    50000, 75000, 60000, 90000, 120000, 85000, 100000, 150000,
+    70000, 95000, 80000, 110000, 65000, 130000, 200000
+};
+
+// Garbage Job Route (5 colectare points in Las Venturas)
+new const Float:GarbageRoute[5][3] = {
+    {2100.0, 2320.0, 10.82},
+    {1940.0, 2160.0, 10.82},
+    {2210.0, 2105.0, 10.82},
+    {2385.0, 2465.0, 10.82},
+    {2600.0, 2200.0, 10.82}
+};
+
 new const VehicleNames[212][32] = {
     "Landstalker","Bravura","Buffalo","Linerunner","Perennial","Sentinel","Dumper","Firetruck","Trashmaster","Stretch",
     "Manana","Infernus","Voodoo","Pony","Mule","Cheetah","Ambulance","Leviathan","Moonbeam","Esperanto",
@@ -258,13 +328,13 @@ forward OnPayDay();
 
 main() {
     print("--------------------------------------------------");
-    print("    ROMANIA ROLEPLAY / REAL LIFE v1.1 LOADED      ");
+    print("    ROMANIA ROLEPLAY / REAL LIFE v1.3 LOADED      ");
     print("       Full Systems & Custom Roleplay UI          ");
     print("--------------------------------------------------");
 }
 
 public OnGameModeInit() {
-    SetGameModeText("Romania RealLife v1.2");
+    SetGameModeText("Romania RealLife v1.3");
     ShowNameTags(1);
     SetNameTagDrawDistance(35.0);
     EnableStuntBonusForAll(0);
@@ -374,6 +444,16 @@ InitDatabase() {
     db_query(gDB, "ALTER TABLE players ADD COLUMN raport INTEGER DEFAULT 0;");
     db_query(gDB, "ALTER TABLE players ADD COLUMN muted INTEGER DEFAULT 0;");
     db_query(gDB, "ALTER TABLE players ADD COLUMN mutetime INTEGER DEFAULT 0;");
+    db_query(gDB, "ALTER TABLE players ADD COLUMN factionrank INTEGER DEFAULT 0;");
+    db_query(gDB, "ALTER TABLE players ADD COLUMN phone INTEGER DEFAULT 0;");
+    db_query(gDB, "ALTER TABLE players ADD COLUMN house INTEGER DEFAULT -1;");
+    db_query(gDB, "ALTER TABLE players ADD COLUMN tutorial INTEGER DEFAULT 0;");
+
+    // Houses Table (slot fixe, proprietar salvat)
+    db_query(gDB, "CREATE TABLE IF NOT EXISTS houses (\
+        slot INTEGER PRIMARY KEY,\
+        owner TEXT DEFAULT ''\
+    );");
 
     // Personal Vehicles Table
     db_query(gDB, "CREATE TABLE IF NOT EXISTS vehicles (\
@@ -396,6 +476,7 @@ InitDatabase() {
 
     print("[DATABASE] SQLite server.db a fost initializata cu succes.");
     LoadPersonalVehicles();
+    LoadHouses();
 }
 
 SavePlayerData(playerid) {
@@ -405,7 +486,8 @@ SavePlayerData(playerid) {
     format(query, sizeof(query), "UPDATE players SET \
         money = %d, bank = %d, score = %d, admin = %d, vip = %d, job = %d, faction = %d, skin = %d,\
         kills = %d, deaths = %d, hours = %d, warns = %d, jailed = %d, jailtime = %d, carlic = %d, gunlic = %d,\
-        wanted = %d, crimes = '%q', raport = %d, muted = %d, mutetime = %d \
+        wanted = %d, crimes = '%q', raport = %d, muted = %d, mutetime = %d, \
+        factionrank = %d, phone = %d, house = %d, tutorial = %d \
         WHERE name = '%q';",
         GetPlayerMoney(playerid),
         PlayerInfo[playerid][pBank],
@@ -428,6 +510,10 @@ SavePlayerData(playerid) {
         PlayerInfo[playerid][pRaport],
         PlayerInfo[playerid][pMuted],
         PlayerInfo[playerid][pMuteTime],
+        PlayerInfo[playerid][pFactionRank],
+        PlayerInfo[playerid][pPhone],
+        PlayerInfo[playerid][pHouse],
+        PlayerInfo[playerid][pTutorial],
         PlayerInfo[playerid][pName]
     );
 
@@ -609,8 +695,15 @@ public OnPlayerConnect(playerid) {
     PlayerInfo[playerid][pRaport] = 0;
     PlayerInfo[playerid][pMuted] = 0;
     PlayerInfo[playerid][pMuteTime] = 0;
+    PlayerInfo[playerid][pPhone] = 0;
+    PlayerInfo[playerid][pHouse] = -1;
+    PlayerInfo[playerid][pTutorial] = 0;
     pCuffed[playerid] = false;
     pSpecTarget[playerid] = INVALID_PLAYER_ID;
+    CallRequest[playerid] = INVALID_PLAYER_ID;
+    CallWith[playerid] = INVALID_PLAYER_ID;
+    pTaxiFare[playerid] = 0;
+    pTaxiRider[playerid] = INVALID_PLAYER_ID;
 
     // Check if player is atomk -> Automatically set Level 5 Owner
     if(!strcmp(PlayerInfo[playerid][pName], "atomk", true)) {
@@ -705,6 +798,15 @@ public OnPlayerDisconnect(playerid, reason) {
         SavePlayerData(playerid);
     }
 
+    // Inchide apelul activ si anuleaza cererile de apel
+    EndPhoneCall(playerid);
+    if(CallRequest[playerid] != INVALID_PLAYER_ID && IsPlayerConnected(CallRequest[playerid])) {
+        SendClientMessage(CallRequest[playerid], COLOR_YELLOW, "[TELEFON] Persoana pe care o sunai s-a deconectat.");
+    }
+    CallRequest[playerid] = INVALID_PLAYER_ID;
+    pTaxiFare[playerid] = 0;
+    pTaxiRider[playerid] = INVALID_PLAYER_ID;
+
     if(PlayerInfo[playerid][pWorkVehicle]) {
         DestroyVehicle(PlayerInfo[playerid][pWorkVehicle]);
         PlayerInfo[playerid][pWorkVehicle] = 0;
@@ -772,13 +874,22 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
             SetPlayerCameraPos(playerid, 2085.0, 2330.0, 30.0);
             SetPlayerCameraLookAt(playerid, 2110.0, 2360.0, 10.82);
 
-            ShowPlayerDialog(playerid, DIALOG_TUTORIAL_DMV, DIALOG_STYLE_MSGBOX, "{00FF00}Tutorial Incepatori - Permis de Conducere",
-                "{FFFFFF}Bun venit pe {00FF00}Romania RealLife (Las Venturas){FFFFFF}!\n\n\
-                Pentru a putea conduce legal masini si a te angaja la joburi,\n\
-                ai nevoie de un {FFFF00}Permis de Conducere{FFFFFF}.\n\n\
-                {00FFFF}Doresti sa fii teleportat direct la Scoala de Soferi (DMV)\n\
-                pentru a sustine proba practica si a-ti lua permisul gratuit acum?{FFFFFF}",
-                "Da, la DMV!", "Nu, la Spawn"
+            // Start the full 5-step interactive tutorial
+            PlayerInfo[playerid][pTutorial] = 1;
+            SendClientMessage(playerid, COLOR_CYAN, "==========================================================");
+            SendClientMessage(playerid, COLOR_GOLD, "[TUTORIAL] Bun venit! Tutorialul interactiv incepe acum...");
+            SendClientMessage(playerid, COLOR_CYAN, "==========================================================");
+
+            ShowPlayerDialog(playerid, DIALOG_TUTORIAL_2, DIALOG_STYLE_MSGBOX, "{00FF00}Tutorial 1/5 - Bine ai venit in Las Venturas!",
+                "{FFFFFF}Bun venit pe {00FF00}Romania RealLife - Las Venturas{FFFFFF}!\n\n\
+                Aici te distrezi roleplay intr-un oras plin de oportunitati:\n\n\
+                {FFFF00}*{FFFFFF} Joburi (Tirist, Pizza, Taxi, Gunoier) pentru bani\n\
+                {FFFF00}*{FFFFFF} Case de cumparat pe tot mapul\n\
+                {FFFF00}*{FFFFFF} Factiuni (Politia, SMURD, FBI, Mafia...)\n\
+                {FFFF00}*{FFFFFF} Vehicule personale cu dealership auto\n\
+                {FFFF00}*{FFFFFF} Telefoane, ATM-uri, events saptamanale\n\n\
+                {00FF00}Vrei sa afli mai multe despre joburi acum?{FFFFFF}",
+                "Da, despre joburi", "Mai tarziu"
             );
 
             SendClientMessage(playerid, COLOR_GREEN, "[CONT] Te-ai inregistrat cu succes! Ai primit $5,000 cash si $15,000 in banca.");
@@ -823,6 +934,10 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
                 db_get_field_assoc(res, "raport", field, sizeof(field)); PlayerInfo[playerid][pRaport] = strval(field);
                 db_get_field_assoc(res, "muted", field, sizeof(field)); PlayerInfo[playerid][pMuted] = strval(field);
                 db_get_field_assoc(res, "mutetime", field, sizeof(field)); PlayerInfo[playerid][pMuteTime] = strval(field);
+                db_get_field_assoc(res, "factionrank", field, sizeof(field)); PlayerInfo[playerid][pFactionRank] = strval(field);
+                db_get_field_assoc(res, "phone", field, sizeof(field)); PlayerInfo[playerid][pPhone] = strval(field);
+                db_get_field_assoc(res, "house", field, sizeof(field)); PlayerInfo[playerid][pHouse] = strval(field);
+                db_get_field_assoc(res, "tutorial", field, sizeof(field)); PlayerInfo[playerid][pTutorial] = strval(field);
                 db_free_result(res);
             }
 
@@ -1020,8 +1135,12 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
                 }
                 case 2: {
                     if(GetPlayerMoney(playerid) < 500) return SendClientMessage(playerid, COLOR_RED, "Nu ai destui bani!");
+                    if(PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "Ai deja un telefon!");
                     GivePlayerMoney(playerid, -500);
-                    SendClientMessage(playerid, COLOR_GREEN, "Ai cumparat un Telefon Mobil! Foloseste /call sau /sms.");
+                    PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+                    PlayerInfo[playerid][pPhone] = 1;
+                    SavePlayerData(playerid);
+                    SendClientMessage(playerid, COLOR_GREEN, "Ai cumparat un Telefon Mobil! Numarul tau este 1xx. Foloseste /phone, /call, /sms.");
                 }
             }
             return 1;
@@ -1244,25 +1363,64 @@ public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[]) {
         }
 
         case DIALOG_TUTORIAL_DMV: {
-            SetCameraBehindPlayer(playerid);
-            SetPlayerInterior(playerid, 0);
-            SetPlayerVirtualWorld(playerid, 0);
-
-            if(response) {
-                // Teleport directly to DMV at Blackfield Stadium grounds
-                SetPlayerPos(playerid, 1098.0, 1375.0, 10.82);
-                SetPlayerFacingAngle(playerid, 0.0);
-                GameTextForPlayer(playerid, "~g~SCOALA DE SOFERI~n~~w~Tasteaza /exam", 4000, 3);
-                PlayerPlaySound(playerid, 1057, 0.0, 0.0, 0.0);
-                SendClientMessage(playerid, COLOR_GREEN, "[TUTORIAL] Ai fost transportat la Scoala de Soferi!");
-                SendClientMessage(playerid, COLOR_YELLOW, "[DMV] Tasteaza {00FF00}/exam {FFFF00}sau {00FF00}/dmv {FFFF00}pentru a incepe proba practica pentru permis.");
+            if(PlayerInfo[playerid][pTutorial] < 10) {
+                if(response) {
+                    SetPlayerPos(playerid, 1098.0, 1375.0, 10.82);
+                    SetPlayerFacingAngle(playerid, 0.0);
+                    GameTextForPlayer(playerid, "~g~SCOALA DE SOFERI~n~~w~Tasteaza /exam", 4000, 3);
+                    PlayerPlaySound(playerid, 1057, 0.0, 0.0, 0.0);
+                    SendClientMessage(playerid, COLOR_GREEN, "[TUTORIAL] Ai fost transportat la Scoala de Soferi!");
+                    SendClientMessage(playerid, COLOR_YELLOW, "[DMV] Tasteaza {00FF00}/exam {FFFF00}sau {00FF00}/dmv {FFFF00}pentru a incepe proba practica pentru permis.");
+                } else {
+                    SetPlayerPos(playerid, 2110.0, 2360.0, 10.82);
+                    SetPlayerFacingAngle(playerid, 90.0);
+                    GameTextForPlayer(playerid, "~y~BINE AI VENIT IN ~r~LAS VENTURAS!", 4000, 3);
+                    PlayerPlaySound(playerid, 1187, 0.0, 0.0, 0.0);
+                    SendClientMessage(playerid, COLOR_YELLOW, "[GHID] Tasteaza {FFFFFF}/help{FFFF00} pentru comenzi si {FFFFFF}/gps{FFFF00} pentru navigatie.");
+                }
+                PlayerInfo[playerid][pTutorial] = 10;
+                SavePlayerData(playerid);
             } else {
-                SetPlayerPos(playerid, 2110.0, 2360.0, 10.82);
-                SetPlayerFacingAngle(playerid, 90.0);
-                GameTextForPlayer(playerid, "~y~BINE AI VENIT IN ~r~LAS VENTURAS!", 4000, 3);
-                PlayerPlaySound(playerid, 1187, 0.0, 0.0, 0.0);
-                SendClientMessage(playerid, COLOR_YELLOW, "[GHID] Tasteaza {FFFFFF}/help{FFFF00} pentru comenzi si {FFFFFF}/gps{FFFF00} pentru navigatie.");
+                SetCameraBehindPlayer(playerid);
             }
+            return 1;
+        }
+
+        case DIALOG_TUTORIAL_2: {
+            if(response) {
+                SendClientMessage(playerid, COLOR_GREEN, "[TUTORIAL] Super! Poti alege un job cu {FFFFFF}/jobs{00FF00} (Tirist, Pizza, Taxi, Gunoier). Ti-am pus un checkpoint la Agentia de Munca.");
+                SetPlayerCheckpoint(playerid, 2130.0, 1395.0, 10.82, 6.0);
+            } else {
+                SendClientMessage(playerid, COLOR_YELLOW, "[TUTORIAL] Nicio problema, poti lua un job oricand cu /jobs.");
+            }
+            ShowTutorialStep3(playerid);
+            return 1;
+        }
+
+        case DIALOG_TUTORIAL_3: {
+            if(response) {
+                SendClientMessage(playerid, COLOR_GREEN, "[TUTORIAL] Ai primit {FFFF00}$15.000 in banca{00FF00}! Foloseste /bank sau /atm la Banca LV pentru depuneri si retrageri.");
+                SendClientMessage(playerid, COLOR_YELLOW, "[TUTORIAL] Cumpara un telefon din magazinul 24/7 cu /buy ($500), apoi foloseste /phone pentru apeluri si SMS!");
+            } else {
+                SendClientMessage(playerid, COLOR_YELLOW, "[TUTORIAL] Bani tai sunt in siguranta. Foloseste /stats oricand pentru a-ti vedea soldul.");
+            }
+            ShowTutorialStep4(playerid);
+            return 1;
+        }
+
+        case DIALOG_TUTORIAL_4: {
+            if(response) {
+                SendClientMessage(playerid, COLOR_GREEN, "[TUTORIAL] Casele sunt marcate cu pickup-uri verzi! Tasteaza {FFFF00}/house{00FF00} langa una pentru a o cumpara sau pentru a intra.");
+            } else {
+                SendClientMessage(playerid, COLOR_YELLOW, "[TUTORIAL] Vehicule: /ds pentru dealership, tasta 2 = motor, tasta N = incuiere, /fill pentru benzina.");
+            }
+            ShowPlayerDialog(playerid, DIALOG_TUTORIAL_DMV, DIALOG_STYLE_MSGBOX, "{00FF00}Tutorial 5/5 - Permis de Conducere",
+                "{FFFFFF}Ultimul pas al tutorialului!\n\n\
+                Pentru a putea conduce legal masini si a te angaja la joburi,\n\
+                ai nevoie de un {FFFF00}Permis de Conducere{FFFFFF} de la Scoala de Soferi (DMV).\n\n\
+                {00FFFF}Doresti sa fii teleportat direct la DMV pentru proba practica?{FFFFFF}",
+                "Da, la DMV!", "Nu, la Spawn"
+            );
             return 1;
         }
 
@@ -1338,6 +1496,20 @@ public OnVehicleSpawn(vehicleid) {
 }
 
 public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
+    // Exit house interior with F/Enter (KEY_SECONDARY_ATTACK = 16)
+    if((newkeys & KEY_SECONDARY_ATTACK) && !(oldkeys & KEY_SECONDARY_ATTACK)) {
+        if(GetPlayerInterior(playerid) == HOUSE_INT_ID && GetPlayerVirtualWorld(playerid) >= HOUSE_INT_WORLD_BASE) {
+            new slot = GetPlayerVirtualWorld(playerid) - HOUSE_INT_WORLD_BASE;
+            if(slot >= 0 && slot < MAX_HOUSES) {
+                SetPlayerInterior(playerid, 0);
+                SetPlayerVirtualWorld(playerid, 0);
+                SetPlayerPos(playerid, HouseInfo[slot][hX], HouseInfo[slot][hY], HouseInfo[slot][hZ]);
+                SetPlayerFacingAngle(playerid, 0.0);
+                return 1;
+            }
+        }
+    }
+
     // Key '2' in vehicle (KEY_SUBMISSION = 512)
     if((newkeys & KEY_SUBMISSION) && !(oldkeys & KEY_SUBMISSION)) {
         if(IsPlayerInAnyVehicle(playerid) && GetPlayerVehicleSeat(playerid) == 0) {
@@ -1380,6 +1552,52 @@ public OnPlayerKeyStateChange(playerid, newkeys, oldkeys) {
 }
 
 public OnPlayerStateChange(playerid, newstate, oldstate) {
+    // Taxi: mark passenger as riding when boarding a taxi driver's cab
+    if(newstate == PLAYER_STATE_PASSENGER) {
+        new tVeh = GetPlayerVehicleID(playerid);
+        new driver = INVALID_PLAYER_ID;
+        for(new d = 0; d < MAX_PLAYERS; d++) {
+            if(IsPlayerConnected(d) && GetPlayerVehicleID(d) == tVeh && GetPlayerVehicleSeat(d) == 0) {
+                driver = d;
+                break;
+            }
+        }
+        if(driver != INVALID_PLAYER_ID && PlayerInfo[driver][pJob] == JOB_TAXI && pTaxiFare[driver] > 0) {
+            pTaxiRider[driver] = playerid;
+            new bstr[144];
+            format(bstr, sizeof(bstr), "[TAXI] Pasagerul %s a urcat in taxi. Tarif: $%d. Cand coboara va plati automat.", PlayerInfo[playerid][pName], pTaxiFare[driver]);
+            SendClientMessage(driver, COLOR_YELLOW, bstr);
+            format(bstr, sizeof(bstr), "[TAXI] Ai urcat in taxiul lui %s. Tarif: $%d (platit automat la coborare).", PlayerInfo[driver][pName], pTaxiFare[driver]);
+            SendClientMessage(playerid, COLOR_YELLOW, bstr);
+        }
+    }
+
+    // Taxi payment when passenger exits the cab
+    if(oldstate == PLAYER_STATE_PASSENGER && newstate == PLAYER_STATE_ONFOOT) {
+        for(new d = 0; d < MAX_PLAYERS; d++) {
+            if(IsPlayerConnected(d) && pTaxiRider[d] == playerid && PlayerInfo[d][pJob] == JOB_TAXI) {
+                new fare = pTaxiFare[d];
+                if(GetPlayerMoney(playerid) >= fare) {
+                    GivePlayerMoney(playerid, -fare);
+                    GivePlayerMoney(d, fare);
+                    PlayerInfo[d][pMoney] = GetPlayerMoney(d);
+                    PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+                    new tstr[144];
+                    format(tstr, sizeof(tstr), "[TAXI] Ai platit cursa de $%d catre soferul %s.", fare, PlayerInfo[d][pName]);
+                    SendClientMessage(playerid, COLOR_YELLOW, tstr);
+                    format(tstr, sizeof(tstr), "[TAXI] Pasagerul %s a platit cursa de $%d.", PlayerInfo[playerid][pName], fare);
+                    SendClientMessage(d, COLOR_GREEN, tstr);
+                } else {
+                    SendClientMessage(d, COLOR_RED, "[TAXI] Pasagerul nu a avut bani pentru cursa!");
+                }
+                pTaxiFare[d] = 0;
+                pTaxiRider[d] = INVALID_PLAYER_ID;
+                SavePlayerData(d);
+                SavePlayerData(playerid);
+            }
+        }
+    }
+
     if(newstate == PLAYER_STATE_DRIVER) {
         new veh = GetPlayerVehicleID(playerid);
         if(VehicleFuel[veh] <= 0) VehicleFuel[veh] = 100;
@@ -1484,6 +1702,7 @@ public OnPlayerSpawn(playerid) {
 }
 
 public OnPlayerDeath(playerid, killerid, reason) {
+    EndPhoneCall(playerid);
     PlayerInfo[playerid][pDeaths]++;
 
     if(killerid != INVALID_PLAYER_ID) {
@@ -1804,6 +2023,36 @@ public OnPlayerEnterCheckpoint(playerid) {
         SendClientMessage(playerid, COLOR_GREEN, msg);
         SendClientMessage(playerid, COLOR_YELLOW, "[PIZZA] Foloseste /work din nou pentru o alta comanda.");
         SavePlayerData(playerid);
+        return 1;
+    }
+
+    if(PlayerInfo[playerid][pJob] == JOB_GARBAGE && PlayerInfo[playerid][pWorkStage] >= 1) {
+        PlayerInfo[playerid][pWorkStage]++;
+        PlayerPlaySound(playerid, 1056, 0.0, 0.0, 0.0);
+
+        new msg[128];
+        if(PlayerInfo[playerid][pWorkStage] > sizeof(GarbageRoute)) {
+            // Route finished
+            DisablePlayerCheckpoint(playerid);
+            PlayerInfo[playerid][pWorkStage] = 0;
+
+            new earnings = 4000 + random(1500);
+            GivePlayerMoney(playerid, earnings);
+            PlayerInfo[playerid][pMoney] = GetPlayerMoney(playerid);
+
+            if(PlayerInfo[playerid][pWorkVehicle]) {
+                DestroyVehicle(PlayerInfo[playerid][pWorkVehicle]);
+                PlayerInfo[playerid][pWorkVehicle] = 0;
+            }
+            format(msg, sizeof(msg), "[GUNOIER] Tura completa! Ai colectat gunoiul din tot cartierul si ai primit $%d.", earnings);
+            SendClientMessage(playerid, COLOR_GREEN, msg);
+            SavePlayerData(playerid);
+        } else {
+            new cp = PlayerInfo[playerid][pWorkStage] - 1;
+            SetPlayerCheckpoint(playerid, GarbageRoute[cp][0], GarbageRoute[cp][1], GarbageRoute[cp][2], 6.0);
+            format(msg, sizeof(msg), "[GUNOIER] Punct de colectare %d/%d atins! Mergi la urmatorul.", cp, sizeof(GarbageRoute));
+            SendClientMessage(playerid, COLOR_YELLOW, msg);
+        }
         return 1;
     }
 
@@ -2358,6 +2607,29 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
                 SetPlayerCheckpoint(playerid, destX, destY, destZ, 4.0);
                 PlayerInfo[playerid][pWorkStage] = 1;
                 SendClientMessage(playerid, COLOR_GREEN, "[PIZZA] Ai preluat comanda de pizza! Du-o rapid la clientul marcat pe radar in Emerald Isle.");
+            }
+            case JOB_TAXI: {
+                if(pTaxiRider[playerid] != INVALID_PLAYER_ID && IsPlayerConnected(pTaxiRider[playerid])) {
+                    return SendClientMessage(playerid, COLOR_YELLOW, "[TAXI] Ai deja un pasager la bord! Asteapta sa coboare pentru plata.");
+                }
+                if(!IsPlayerInAnyVehicle(playerid)) {
+                    return SendClientMessage(playerid, COLOR_RED, "[TAXI] Trebuie sa fii in masina de taxi! Dute la depozitul Starfish si prinde un pasager.");
+                }
+                SendClientMessage(playerid, COLOR_GREEN, "[TAXI] Mod taxi activ! Pasagerii care urca in taxiul tau platesc automat cursa la coborare.");
+                SendClientMessage(playerid, COLOR_YELLOW, "[TAXI] Seteaza tariful cu /fare [suma] (minim $50, maxim $5000).");
+            }
+            case JOB_GARBAGE: {
+                if(!IsPlayerInRangeOfPoint(playerid, 50.0, 2805.0, 970.0, 10.82)) {
+                    return SendClientMessage(playerid, COLOR_RED, "[GUNOIER] Trebuie sa fii la Linden Station (Depozitul de gunoi)! Foloseste /gps.");
+                }
+                if(PlayerInfo[playerid][pWorkStage] >= 1) return SendClientMessage(playerid, COLOR_RED, "[GUNOIER] Ai deja o tura activa!");
+                if(!IsPlayerInAnyVehicle(playerid)) {
+                    return SendClientMessage(playerid, COLOR_RED, "[GUNOIER] Trebuie sa fii intr-un camion de gunoi (Trashmaster)!");
+                }
+
+                PlayerInfo[playerid][pWorkStage] = 1;
+                SetPlayerCheckpoint(playerid, GarbageRoute[0][0], GarbageRoute[0][1], GarbageRoute[0][2], 6.0);
+                SendClientMessage(playerid, COLOR_GREEN, "[GUNOIER] Tura a inceput! Urmareste checkpointurile rosii si colecteaza gunoiul din 5 puncte.");
             }
             default: {
                 SendClientMessage(playerid, COLOR_YELLOW, "[JOB] Pentru jobul tau, urca intr-un vehicul specific si incepe activitatea.");
@@ -3548,6 +3820,172 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
         return 1;
     }
 
+    // Replay Tutorial Command
+    if(!strcmp(cmd, "/tutorial", true) || !strcmp(cmd, "/ghid", true)) {
+        if(PlayerInfo[playerid][pTutorial] >= 10) {
+            ShowPlayerDialog(playerid, DIALOG_TUTORIAL_2, DIALOG_STYLE_MSGBOX, "{00FF00}Replay Tutorial 1/5 - Bine ai venit in Las Venturas!",
+                "{FFFFFF}Reia-mi tutorialul de la inceput?\n\n\
+                Vei primi informatii despre joburi, bani, case, vehicule, telefoane si permisul de conducere.",
+                "Incepe", "Anuleaza"
+            );
+            return 1;
+        }
+        SendClientMessage(playerid, COLOR_YELLOW, "[TUTORIAL] Esti deja in tutorial!");
+        return 1;
+    }
+
+    // ========================================================================
+    //                        HOUSE SYSTEM COMMANDS
+    // ========================================================================
+    if(!strcmp(cmd, "/house", true) || !strcmp(cmd, "/casa", true)) {
+        if(strlen(params) == 0) {
+            new slot = GetNearestHouse(playerid);
+            new hInfo[400];
+            if(slot == -1) {
+                if(PlayerInfo[playerid][pHouse] == -1) {
+                    format(hInfo, sizeof(hInfo), "{FFFFFF}Nu esti langa nicio casa si nu detii una.\n\nCasele sunt marcate cu pickup-uri verzi pe harta!\nApropie-te de una si tasteaza {00FF00}/house{FFFFFF}.");
+                } else {
+                    format(hInfo, sizeof(hInfo), "{FFFFFF}Casa ta: #{FFFF00}%d\n\n{00FF00}Vrei sa o vinzi la jumatate din pret?{FFFFFF}\nTasteaza /house vinde", PlayerInfo[playerid][pHouse]);
+                }
+            } else {
+                format(hInfo, sizeof(hInfo), "{FFFF00}Casa #%d{FFFFFF}\nPret: {00FF00}$%d{FFFFFF}\nStatus: %s\n\n{00FFFF}Optiuni:{FFFFFF}\n- /house cumpara (daca este libera)\n- /house intra (daca este a ta)", slot, HouseInfo[slot][hPrice], HouseInfo[slot][hOwned] ? "Occupata" : "De vanzare");
+            }
+            ShowPlayerDialog(playerid, DIALOG_HELP, DIALOG_STYLE_MSGBOX, "{00FF00}Sistemul de Case - Las Venturas", hInfo, "Inchide", "");
+            return 1;
+        }
+
+        if(!strcmp(params, "cumpara", true) || !strcmp(params, "buy", true)) {
+            BuyHouse(playerid);
+            return 1;
+        }
+        if(!strcmp(params, "vinde", true) || !strcmp(params, "sell", true)) {
+            SellHouse(playerid);
+            return 1;
+        }
+        if(!strcmp(params, "intra", true) || !strcmp(params, "enter", true)) {
+            EnterHouse(playerid);
+            return 1;
+        }
+        SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /house [cumpara|vinde|intra]");
+        return 1;
+    }
+
+    // ========================================================================
+    //                        TAXI FARE COMMANDS
+    // ========================================================================
+    if(!strcmp(cmd, "/fare", true)) {
+        if(PlayerInfo[playerid][pJob] != JOB_TAXI) return SendClientMessage(playerid, COLOR_RED, "[TAXI] Trebuie sa fii Taximetrist! Angajeaza-te cu /jobs.");
+        new fare = strval(params);
+        if(fare < 50 || fare > 5000) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /fare [suma 50-5000]");
+        pTaxiFare[playerid] = fare;
+        new fmsg[128];
+        format(fmsg, sizeof(fmsg), "[TAXI] Tariful tau a fost setat la $%d per cursa. Pasagerii platesc automat la coborare.", fare);
+        SendClientMessage(playerid, COLOR_GREEN, fmsg);
+        return 1;
+    }
+
+    // ========================================================================
+    //                        PHONE SYSTEM COMMANDS
+    // ========================================================================
+    if(!strcmp(cmd, "/phone", true) || !strcmp(cmd, "/telefon", true)) {
+        if(!PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu detii un telefon! Cumpara unul din magazinul 24/7 cu /buy.");
+        new pmsg[400];
+        format(pmsg, sizeof(pmsg), "{FFFF00}=== TELEFONUL TAU ==={FFFFFF}\n\nNumarul tau: {00FF00}%d{FFFFFF}\nBaterie: {00FF00}100%%{FFFFFF}\nSemnal: {00FF00}Full{FFFFFF}\n\n{00FFFF}Comenzi disponibile:{FFFFFF}\n/call [numar] - Suna pe cineva\n/sms [numar] [mesaj] - Trimite un SMS\n/answer - Raspunde la apel\n/hangup - Inchide apelul", GetPlayerPhoneNumber(playerid));
+        ShowPlayerDialog(playerid, DIALOG_HELP, DIALOG_STYLE_MSGBOX, "{00FF00}Telefon Mobil", pmsg, "Inchide", "");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/call", true)) {
+        if(!PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu detii un telefon! Cumpara unul cu /buy.");
+        if(CallWith[playerid] != INVALID_PLAYER_ID) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Esti deja la telefon! Foloseste /hangup mai intai.");
+        if(CallRequest[playerid] != INVALID_PLAYER_ID) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Ai deja un apel in asteptare!");
+        new number = strval(params);
+        if(number < 100 || number >= 100 + MAX_PLAYERS) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /call [numar] (numerele sunt 100 - %d)", 99 + MAX_PLAYERS);
+
+        new targetid = number - 100;
+        if(!IsPlayerConnected(targetid) || !PlayerInfo[targetid][pLogged]) {
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Numarul este indisponibil sau persoana nu este online!");
+        }
+        if(!PlayerInfo[targetid][pPhone]) {
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Persoana apelata nu detine un telefon!");
+        }
+        if(targetid == playerid) {
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu te poti suna pe tine insuti!");
+        }
+        if(CallWith[targetid] != INVALID_PLAYER_ID) {
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Persoana apelata este deja intr-un apel!");
+        }
+
+        CallRequest[targetid] = playerid;
+        new cmsg[144];
+        format(cmsg, sizeof(cmsg), "[TELEFON] Iti suna telefonul de la numarul %d! Tasteaza /answer pentru a raspunde.", GetPlayerPhoneNumber(playerid));
+        SendClientMessage(targetid, COLOR_YELLOW, cmsg);
+        SendClientMessage(playerid, COLOR_GREEN, "[TELEFON] Se aude ton de apel... Asteapta raspunsul.");
+        PlayerPlaySound(playerid, 1052, 0.0, 0.0, 0.0);
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/answer", true)) {
+        if(!PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu detii un telefon!");
+        if(CallRequest[playerid] == INVALID_PLAYER_ID) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nimeni nu te suna in acest moment!");
+
+        new caller = CallRequest[playerid];
+        if(!IsPlayerConnected(caller) || !PlayerInfo[caller][pLogged]) {
+            CallRequest[playerid] = INVALID_PLAYER_ID;
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Persoana care te suna s-a deconectat.");
+        }
+
+        CallWith[playerid] = caller;
+        CallWith[caller] = playerid;
+        CallRequest[playerid] = INVALID_PLAYER_ID;
+
+        new amsg[144];
+        format(amsg, sizeof(amsg), "[TELEFON] %d a raspuns la apelul tau. Vorbiti acum.", GetPlayerPhoneNumber(playerid));
+        SendClientMessage(caller, COLOR_GREEN, amsg);
+        SendClientMessage(playerid, COLOR_GREEN, "[TELEFON] Ai raspuns la apel. Vorbiti acum.");
+        PlayerPlaySound(playerid, 1057, 0.0, 0.0, 0.0);
+        PlayerPlaySound(caller, 1057, 0.0, 0.0, 0.0);
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/hangup", true)) {
+        if(!PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu detii un telefon!");
+        if(CallWith[playerid] == INVALID_PLAYER_ID && CallRequest[playerid] == INVALID_PLAYER_ID) {
+            return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu esti intr-un apel!");
+        }
+        EndPhoneCall(playerid);
+        if(CallRequest[playerid] != INVALID_PLAYER_ID) {
+            if(IsPlayerConnected(CallRequest[playerid])) {
+                SendClientMessage(CallRequest[playerid], COLOR_YELLOW, "[TELEFON] Apelul tau a fost refuzat / inchis.");
+            }
+            CallRequest[playerid] = INVALID_PLAYER_ID;
+        }
+        SendClientMessage(playerid, COLOR_YELLOW, "[TELEFON] Ai inchis apelul.");
+        return 1;
+    }
+
+    if(!strcmp(cmd, "/sms", true)) {
+        if(!PlayerInfo[playerid][pPhone]) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Nu detii un telefon! Cumpara unul cu /buy.");
+        new number, text[100];
+        if(sscanf_target_str(params, number, text) && number >= 100 && number < 100 + MAX_PLAYERS) {
+            new targetid = number - 100;
+            if(!IsPlayerConnected(targetid) || !PlayerInfo[targetid][pLogged]) {
+                return SendClientMessage(playerid, COLOR_RED, "[SMS] Numarul este indisponibil sau persoana nu este online!");
+            }
+            if(!PlayerInfo[targetid][pPhone]) {
+                return SendClientMessage(playerid, COLOR_RED, "[SMS] Persoana nu detine un telefon!");
+            }
+            new smsg[144];
+            format(smsg, sizeof(smsg), "[SMS de la %d]: %s", GetPlayerPhoneNumber(playerid), text);
+            SendClientMessage(targetid, COLOR_YELLOW, smsg);
+            format(smsg, sizeof(smsg), "[SMS catre %d]: %s", number, text);
+            SendClientMessage(playerid, COLOR_GREEN, smsg);
+        } else {
+            SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /sms [numar] [mesaj]");
+        }
+        return 1;
+    }
+
     SendClientMessage(playerid, COLOR_RED, "[EROARE] Comanda necunoscuta! Tasteaza {FFFFFF}/help{FF0000} pentru lista de comenzi.");
     return 1;
 }
@@ -3555,6 +3993,206 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
 // ============================================================================
 //                               HELPER FUNCTIONS
 // ============================================================================
+
+// ============================================================================
+//                          TUTORIAL STEP FUNCTIONS
+// ============================================================================
+
+stock ShowTutorialStep3(playerid) {
+    ShowPlayerDialog(playerid, DIALOG_TUTORIAL_3, DIALOG_STYLE_MSGBOX, "{00FF00}Tutorial 3/5 - Banii & Telefonul",
+        "{FFFFFF}Pasiunea a 3-a: {FFFF00}BANII{FFFFFF}!\n\n\
+        In acest server ai doua surse de bani:\n\n\
+        {FFFF00}*{FFFFFF} Cash (ce porti la tine)\n\
+        {FFFF00}*{FFFFFF} Banca (sold securizat, cu dobanda saptamanala de payday)\n\n\
+        Poti depune/retrage la Banca LV sau la ATM-uri cu {00FF00}/bank{FFFFFF} sau {00FF00}/atm{FFFFFF}.\n\
+        Poti cumpara un {FFFF00}telefon mobil{FFFFFF} din magazinul 24/7 cu {00FF00}/buy{FFFFFF} pentru {00FF00}$500{FFFFFF},\n\
+        apoi poti suna pe alti jucatori ({00FF00}/call{FFFFFF}) sau trimite mesaje ({00FF00}/sms{FFFFFF}).\n\n\
+        {00FF00}Vrei sa afli despre banci si telefoane?{FFFFFF}",
+        "Da, despre banca", "Skip"
+    );
+    return 1;
+}
+
+stock ShowTutorialStep4(playerid) {
+    ShowPlayerDialog(playerid, DIALOG_TUTORIAL_4, DIALOG_STYLE_MSGBOX, "{00FF00}Tutorial 4/5 - Case & Vehicule",
+        "{FFFFFF}Pasiunea a 4-a: {FFFF00}CASE SI MASINI{FFFFFF}!\n\n\
+        {FFFF00}CASE:{FFFFFF} Pe tot mapul exista case de vanzare marcate cu pickup-uri verzi.\n\
+        Apropie-te de una si tasteaza {00FF00}/house cumpara{FFFFFF} pentru a o cumpara cu bani din banca.\n\
+        Poti intra in casa ta cu {00FF00}/house intra{FFFFFF} si o poti vinde la jumatate din pret cu {00FF00}/house vinde{FFFFFF}.\n\n\
+        {FFFF00}VEHICULE:{FFFFFF} Mergi la Dealership (tasteaza {00FF00}/ds{FFFFFF}) si alege masina preferata din catalog.\n\
+        Motor pornit/oprit pe tasta {FFFF00}2{FFFFFF}, inchidere usi pe tasta {FFFF00}N{FFFFFF}.\n\n\
+        {00FF00}Vrei sa afli despre case si vehicule?{FFFFFF}",
+        "Da, despre case", "Skip"
+    );
+    return 1;
+}
+
+// ============================================================================
+//                          HOUSE SYSTEM FUNCTIONS
+// ============================================================================
+
+LoadHouses() {
+    for(new i = 0; i < MAX_HOUSES; i++) {
+        HouseInfo[i][hSlot] = i;
+        HouseInfo[i][hX] = HouseSpots[i][0];
+        HouseInfo[i][hY] = HouseSpots[i][1];
+        HouseInfo[i][hZ] = HouseSpots[i][2];
+        HouseInfo[i][hPrice] = HousePrices[i];
+        HouseInfo[i][hOwner] = "";
+        HouseInfo[i][hOwned] = 0;
+
+        new query[256];
+        format(query, sizeof(query), "SELECT owner FROM houses WHERE slot = %d LIMIT 1;", i);
+        new DBResult:res = db_query(gDB, query);
+        if(res) {
+            if(db_num_rows(res) > 0) {
+                new owner[MAX_PLAYER_NAME];
+                db_get_field_assoc(res, "owner", owner, MAX_PLAYER_NAME);
+                if(strlen(owner) > 0) {
+                    format(HouseInfo[i][hOwner], MAX_PLAYER_NAME, "%s", owner);
+                    HouseInfo[i][hOwned] = 1;
+                }
+            }
+            db_free_result(res);
+        }
+
+        // Create pickup + label
+        if(HouseInfo[i][hOwned]) {
+            HouseInfo[i][hPickup] = CreatePickup(1272, 1, HouseInfo[i][hX], HouseInfo[i][hY], HouseInfo[i][hZ], -1);
+        } else {
+            HouseInfo[i][hPickup] = CreatePickup(1273, 1, HouseInfo[i][hX], HouseInfo[i][hY], HouseInfo[i][hZ], -1);
+        }
+        UpdateHouseLabel(i);
+    }
+    printf("[HOUSES] S-au incarcat %d case in Las Venturas.", MAX_HOUSES);
+}
+
+UpdateHouseLabel(slot) {
+    if(slot < 0 || slot >= MAX_HOUSES) return;
+    new label[128];
+    if(HouseInfo[slot][hOwned]) {
+        format(label, sizeof(label), "{00FF00}[ CASE DE VANZARE - OCCUPATA ]\n{FFFFFF}Proprietar: {FFFF00}%s\n{FFFFFF}Tasteaza {00FF00}/house", HouseInfo[slot][hOwner]);
+    } else {
+        format(label, sizeof(label), "{FFFF00}[ CASA DE VANZARE ]\n{FFFFFF}Pret: {00FF00}$%d\n{FFFFFF}Tasteaza {00FF00}/house cumpara", HouseInfo[slot][hPrice]);
+    }
+    if(HouseInfo[slot][hLabel] != Text3D:INVALID_3DTEXT_ID) {
+        Delete3DTextLabel(HouseInfo[slot][hLabel]);
+    }
+    HouseInfo[slot][hLabel] = Create3DTextLabel(label, COLOR_WHITE, HouseInfo[slot][hX], HouseInfo[slot][hY], HouseInfo[slot][hZ] + 1.2, 25.0, 0, 1);
+}
+
+GetNearestHouse(playerid) {
+    for(new i = 0; i < MAX_HOUSES; i++) {
+        if(IsPlayerInRangeOfPoint(playerid, 3.5, HouseInfo[i][hX], HouseInfo[i][hY], HouseInfo[i][hZ])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+stock BuyHouse(playerid) {
+    new slot = GetNearestHouse(playerid);
+    if(slot == -1) return SendClientMessage(playerid, COLOR_RED, "[CASA] Nu esti langa nicio casa de vanzare!");
+
+    if(HouseInfo[slot][hOwned]) {
+        if(!strcmp(HouseInfo[slot][hOwner], PlayerInfo[playerid][pName], true)) {
+            return SendClientMessage(playerid, COLOR_YELLOW, "[CASA] Aceasta casa este deja a ta! Tasteaza /house intra pentru a intra.");
+        }
+        return SendClientMessage(playerid, COLOR_RED, "[CASA] Aceasta casa are deja proprietar!");
+    }
+    if(PlayerInfo[playerid][pHouse] != -1) {
+        return SendClientMessage(playerid, COLOR_RED, "[CASA] Detii deja o casa! Vinde-o prima data cu /house vinde.");
+    }
+    if(PlayerInfo[playerid][pBank] < HouseInfo[slot][hPrice]) {
+        new err[128];
+        format(err, sizeof(err), "[CASA] Nu ai destui bani in banca! Pretul casei este $%d.", HouseInfo[slot][hPrice]);
+        return SendClientMessage(playerid, COLOR_RED, err);
+    }
+
+    PlayerInfo[playerid][pBank] -= HouseInfo[slot][hPrice];
+    PlayerInfo[playerid][pHouse] = slot;
+    HouseInfo[slot][hOwned] = 1;
+    format(HouseInfo[slot][hOwner], MAX_PLAYER_NAME, "%s", PlayerInfo[playerid][pName]);
+
+    DestroyPickup(HouseInfo[slot][hPickup]);
+    HouseInfo[slot][hPickup] = CreatePickup(1272, 1, HouseInfo[slot][hX], HouseInfo[slot][hY], HouseInfo[slot][hZ], -1);
+    UpdateHouseLabel(slot);
+
+    new query[256];
+    format(query, sizeof(query), "INSERT OR REPLACE INTO houses (slot, owner) VALUES (%d, '%q');", slot, PlayerInfo[playerid][pName]);
+    db_query(gDB, query);
+    SavePlayerData(playerid);
+
+    new msg[144];
+    format(msg, sizeof(msg), "[CASA] Felicitari! Ai cumparat casa #%d pentru $%d. Tasteaza /house intra pentru a intra.", slot, HouseInfo[slot][hPrice]);
+    SendClientMessage(playerid, COLOR_GREEN, msg);
+    PlayerPlaySound(playerid, 1057, 0.0, 0.0, 0.0);
+    return 1;
+}
+
+stock SellHouse(playerid) {
+    if(PlayerInfo[playerid][pHouse] == -1) return SendClientMessage(playerid, COLOR_RED, "[CASA] Nu detii nicio casa!");
+
+    new slot = PlayerInfo[playerid][pHouse];
+    new refund = HouseInfo[slot][hPrice] / 2;
+
+    PlayerInfo[playerid][pBank] += refund;
+    PlayerInfo[playerid][pHouse] = -1;
+    HouseInfo[slot][hOwned] = 0;
+    HouseInfo[slot][hOwner] = "";
+
+    DestroyPickup(HouseInfo[slot][hPickup]);
+    HouseInfo[slot][hPickup] = CreatePickup(1273, 1, HouseInfo[slot][hX], HouseInfo[slot][hY], HouseInfo[slot][hZ], -1);
+    UpdateHouseLabel(slot);
+
+    new query[128];
+    format(query, sizeof(query), "DELETE FROM houses WHERE slot = %d;", slot);
+    db_query(gDB, query);
+    SavePlayerData(playerid);
+
+    new msg[144];
+    format(msg, sizeof(msg), "[CASA] Ai vandut casa pentru $%d (jumatate din pret). Banii au fost trimisi in contul tau bancar.", refund);
+    SendClientMessage(playerid, COLOR_GREEN, msg);
+    return 1;
+}
+
+stock EnterHouse(playerid) {
+    new slot = GetNearestHouse(playerid);
+    if(slot == -1) return SendClientMessage(playerid, COLOR_RED, "[CASA] Nu esti langa nicio casa!");
+
+    if(!HouseInfo[slot][hOwned]) {
+        return SendClientMessage(playerid, COLOR_RED, "[CASA] Aceasta casa nu are proprietar si este inchisa!");
+    }
+    if(!strcmp(HouseInfo[slot][hOwner], PlayerInfo[playerid][pName], true) || PlayerInfo[playerid][pAdmin] >= 3) {
+        SetPlayerInterior(playerid, HOUSE_INT_ID);
+        SetPlayerVirtualWorld(playerid, HOUSE_INT_WORLD_BASE + slot);
+        SetPlayerPos(playerid, HOUSE_INT_X, HOUSE_INT_Y, HOUSE_INT_Z);
+        GameTextForPlayer(playerid, "~g~CASA TA", 2000, 3);
+        SendClientMessage(playerid, COLOR_GREEN, "[CASA] Bine ai venit acasa! Iesi prin pickup pentru a iesi.");
+    } else {
+        SendClientMessage(playerid, COLOR_RED, "[CASA] Aceasta casa nu este a ta si usa este incuiata!");
+    }
+    return 1;
+}
+
+// ============================================================================
+//                          PHONE SYSTEM FUNCTIONS
+// ============================================================================
+
+stock GetPlayerPhoneNumber(playerid) {
+    // Numarul de telefon = ID player + 100 (simplic si unic per sesiune)
+    return playerid + 100;
+}
+
+stock EndPhoneCall(playerid) {
+    if(CallWith[playerid] != INVALID_PLAYER_ID && IsPlayerConnected(CallWith[playerid])) {
+        new other = CallWith[playerid];
+        SendClientMessage(other, COLOR_YELLOW, "[TELEFON] Apelul a fost inchis.");
+        CallWith[other] = INVALID_PLAYER_ID;
+    }
+    CallWith[playerid] = INVALID_PLAYER_ID;
+    return 1;
+}
 
 stock SendLocalMessage(playerid, color, const string[], Float:radius) {
     new Float:x, Float:y, Float:z;
