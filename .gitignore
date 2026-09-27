@@ -1,0 +1,10 @@
+# Baza de date locala
+*.db
+server.db
+
+# Loguri
+server_log.txt
+*.log
+
+# Fisiere temporare compilator
+*.lst
