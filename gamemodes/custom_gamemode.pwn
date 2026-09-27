@@ -4176,8 +4176,11 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
         if(slot == -1) {
             format(bInfo, sizeof(bInfo), "{FFFFFF}Nu esti langa nicio afacere.\n\nAfacerele sunt marcate cu pickup-uri pe map!\nVenitul se plateste automat la fiecare payday.");
         } else {
+            new bizOwner[MAX_PLAYER_NAME + 16];
+            if(BizInfo[slot][bOwned]) format(bizOwner, sizeof(bizOwner), "%s", BizInfo[slot][bOwner]);
+            else format(bizOwner, sizeof(bizOwner), "DE VANZARE");
             format(bInfo, sizeof(bInfo), "{FFFF00}[ %s ]{FFFFFF}\nPret: {00FF00}$%d{FFFFFF}\nVenit/payday: {00FF00}$%d{FFFFFF}\nStatus: %s\n\n{00FFFF}Comenzi:{FFFFFF}\n/biz cumpara | /biz vinde", 
-                BizInfo[slot][bName], BizInfo[slot][bPrice], BizInfo[slot][bIncome], BizInfo[slot][bOwned] ? (BizInfo[slot][bOwner]) : "DE VANZARE");
+                BizInfo[slot][bName], BizInfo[slot][bPrice], BizInfo[slot][bIncome], bizOwner);
         }
         ShowPlayerDialog(playerid, DIALOG_BIZ, DIALOG_STYLE_MSGBOX, "{00FF00}Afacere - Las Venturas", bInfo, "Inchide", "");
         return 1;
@@ -4218,7 +4221,7 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
         new refund = BizInfo[slot][bPrice] / 2;
         PlayerInfo[playerid][pBank] += refund;
         BizInfo[slot][bOwned] = 0;
-        BizInfo[slot][bOwner] = "";
+        BizInfo[slot][bOwner][0] = '\0';
         DestroyPickup(BizInfo[slot][bPickup]);
         BizInfo[slot][bPickup] = CreatePickup(1274, 1, BizInfo[slot][bX], BizInfo[slot][bY], BizInfo[slot][bZ], -1);
         UpdateBizLabel(slot);
@@ -4522,7 +4525,11 @@ public OnPlayerCommandText(playerid, cmdtext[]) {
         if(CallWith[playerid] != INVALID_PLAYER_ID) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Esti deja la telefon! Foloseste /hangup mai intai.");
         if(CallRequest[playerid] != INVALID_PLAYER_ID) return SendClientMessage(playerid, COLOR_RED, "[TELEFON] Ai deja un apel in asteptare!");
         new number = strval(params);
-        if(number < 100 || number >= 100 + MAX_PLAYERS) return SendClientMessage(playerid, COLOR_YELLOW, "Folosire: /call [numar] (numerele sunt 100 - %d)", 99 + MAX_PLAYERS);
+        if(number < 100 || number >= 100 + MAX_PLAYERS) {
+            new callmsg[128];
+            format(callmsg, sizeof(callmsg), "Folosire: /call [numar] (numerele sunt 100 - %d)", 99 + MAX_PLAYERS);
+            return SendClientMessage(playerid, COLOR_YELLOW, callmsg);
+        }
 
         new targetid = number - 100;
         if(!IsPlayerConnected(targetid) || !PlayerInfo[targetid][pLogged]) {
@@ -4662,7 +4669,7 @@ LoadBusinesses() {
         BizInfo[i][bPrice] = BizPrices[i];
         BizInfo[i][bIncome] = BizIncomes[i];
         format(BizInfo[i][bName], 32, "%s", BizNames[i]);
-        BizInfo[i][bOwner] = "";
+        BizInfo[i][bOwner][0] = '\0';
         BizInfo[i][bOwned] = 0;
 
         new query[256];
@@ -4731,7 +4738,7 @@ LoadHouses() {
         HouseInfo[i][hY] = HouseSpots[i][1];
         HouseInfo[i][hZ] = HouseSpots[i][2];
         HouseInfo[i][hPrice] = HousePrices[i];
-        HouseInfo[i][hOwner] = "";
+        HouseInfo[i][hOwner][0] = '\0';
         HouseInfo[i][hOwned] = 0;
 
         new query[256];
@@ -4832,7 +4839,7 @@ stock SellHouse(playerid) {
     PlayerInfo[playerid][pBank] += refund;
     PlayerInfo[playerid][pHouse] = -1;
     HouseInfo[slot][hOwned] = 0;
-    HouseInfo[slot][hOwner] = "";
+    HouseInfo[slot][hOwner][0] = '\0';
 
     DestroyPickup(HouseInfo[slot][hPickup]);
     HouseInfo[slot][hPickup] = CreatePickup(1273, 1, HouseInfo[slot][hX], HouseInfo[slot][hY], HouseInfo[slot][hZ], -1);
