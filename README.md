@@ -62,6 +62,28 @@ Server complet de SA-MP 0.3.7 bazat pe Las Venturas, cu sisteme avansate de Role
   - Comenzi organizate pe grade de la L1 Helper pana la L5 Owner (`/spec`, `/specoff`, `/kick`, `/mute`, `/unmute`, `/freeze`, `/unfreeze`, `/slap`, `/jail`, `/fly`, `/god`, `/ban`, `/goto`, `/gethere`, `/sethp`, `/setarmour`, `/rac`, `/destroyveh`, `/o`, `/makeadmin`, `/givemoney`, `/setleader`).
   - Recunoastere automata de Owner (Level 5) pentru utilizatorul `atomk`.
 
+## Gamemode Red-Zone RPG (folder `red-zone/`)
+
+Pachet complet **open.mp + MySQL** (gamemode profesional, modular, ~54.000 linii Pawn):
+
+### Structura
+- `red-zone/server-package/main.amx` – gamemode-ul compilat (modular, inclus din `src/` — Admins, Factions, Houses, Bussines, Inventar, iPhone, computer, clans, turfs, BattlePass etc.)
+- `red-zone/red-zone.sql` – dump MySQL complet (conturi RESETATE la ID 1, fara conturi vechi, casele/biz-urile marcate ca libere)
+- `red-zone/plugins/` – pluginuri Linux (.so): crashdetect, mysql, sscanf, streamer, gvar, ColAndreas
+- `red-zone/server.cfg` – config Linux adaptat (port 7777, fara bind)
+
+### Setup MySQL (obligatoriu)
+1. Instaleaza MySQL/MariaDB si porneste-l.
+2. `CREATE DATABASE samp;`
+3. `mysql -u root samp < red-zone/red-zone.sql`
+4. User `root` fara parola local (sau editezi `server-package/src/Variables.pwn` — `MySQL_UserLocal` / `MySQL_PassLocal` / `MySQL_DataLocal` — si recompilezi).
+
+### Pornire
+- Linux: ruleaza `./start-redzone.sh` (descarca runtime-ul open.mp Linux `omp-server` in `red-zone/` daca nu ai deja).
+- Windows: ruleaza `red-zone/omp-server.exe` direct.
+
+> Atentie: gamemode-ul Red-Zone ruleaza pe **open.mp** cu **MySQL**, in timp ce gamemode-ul vechi (custom_gamemode) ruleaza pe SA-MP 0.3.7 clasic cu **SQLite**. Sunt separate — `server.cfg` din root porneste custom_gamemode, `red-zone/server.cfg` porneste Red-Zone.
+
 ## Rulare pe Pterodactyl / Linux
 
 1. Urca fisierele pe serverul tau Pterodactyl.

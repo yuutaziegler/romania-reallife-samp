@@ -2428,3 +2428,24 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+-- ============================================================
+-- ID RESET (fresh start): all counters back to 1, no old accounts
+-- ============================================================
+ALTER TABLE `users` AUTO_INCREMENT = 1;
+ALTER TABLE `bans` AUTO_INCREMENT = 1;
+ALTER TABLE `cars` AUTO_INCREMENT = 1;
+ALTER TABLE `houses` AUTO_INCREMENT = 1;
+ALTER TABLE `bussines` AUTO_INCREMENT = 1;
+ALTER TABLE `faction_logs` AUTO_INCREMENT = 1;
+ALTER TABLE `faction_apply` AUTO_INCREMENT = 1;
+ALTER TABLE `emails` AUTO_INCREMENT = 1;
+ALTER TABLE `friends` AUTO_INCREMENT = 1;
+ALTER TABLE `tickets` AUTO_INCREMENT = 1;
+ALTER TABLE `panel_tickets` AUTO_INCREMENT = 1;
+ALTER TABLE `panel_complaints` AUTO_INCREMENT = 1;
+ALTER TABLE `panel_logs` AUTO_INCREMENT = 1;
+ALTER TABLE `chat_log` AUTO_INCREMENT = 1;
+ALTER TABLE `market` AUTO_INCREMENT = 1;
+ALTER TABLE `updates` AUTO_INCREMENT = 1;
